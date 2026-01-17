@@ -3,11 +3,27 @@ package metadata
 import (
 	"encoding/json"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+func retryOperation(op func() error) error {
+	var err error
+	for i := 0; i < 100; i++ {
+		err = op()
+		if err == nil {
+			return nil
+		}
+		// On Windows, file locking issues are common with "Access is denied"
+		time.Sleep(50 * time.Millisecond)
+	}
+	return err
+}
 
 type LocalStorage struct {
 	baseDir string
@@ -30,8 +46,6 @@ func (s *LocalStorage) getLocalPath(p string) string {
 	if safePath == "/" || safePath == "." {
 		return s.baseDir
 	}
-	// On Windows, filepath.Join with a leading slash might be tricky,
-	// but path.Clean ensures it's relative-like except for the root.
 	rel := strings.TrimPrefix(safePath, "/")
 	return filepath.Join(s.baseDir, rel)
 }
@@ -63,13 +77,11 @@ func (s *LocalStorage) Get(p string) (*FileMeta, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, err
 	}
-	// Path in FileMeta should match requested path
 	meta.Path = p
 	return &meta, nil
 }
 
 func (s *LocalStorage) GetByRemoteName(remoteName string) (*FileMeta, error) {
-	// Re-implementing walk for RemoteName lookups
 	var found *FileMeta
 	err := filepath.WalkDir(s.baseDir, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() || d.Name() == ".clearvault" {
@@ -83,7 +95,6 @@ func (s *LocalStorage) GetByRemoteName(remoteName string) (*FileMeta, error) {
 		if err := json.Unmarshal(data, &meta); err == nil {
 			if meta.RemoteName == remoteName {
 				found = &meta
-				// Calculate virtual path
 				rel, _ := filepath.Rel(s.baseDir, p)
 				found.Path = path.Clean("/" + filepath.ToSlash(rel))
 				return filepath.SkipAll
@@ -114,21 +125,34 @@ func (s *LocalStorage) Save(meta *FileMeta) error {
 
 func (s *LocalStorage) RemoveAll(p string) error {
 	local := s.getLocalPath(p)
+	log.Printf("LocalStorage: RemoveAll '%s' -> '%s'", p, local)
 	if local == s.baseDir {
 		// Don't delete baseDir itself, just children
 		items, err := os.ReadDir(local)
 		if err != nil {
+			log.Printf("LocalStorage: ReadDir failed for baseDir: %v", err)
 			return err
 		}
 		for _, item := range items {
 			if item.Name() == ".clearvault" {
 				continue
 			}
-			os.RemoveAll(filepath.Join(local, item.Name()))
+			childPath := filepath.Join(local, item.Name())
+			if err := retryOperation(func() error {
+				return os.RemoveAll(childPath)
+			}); err != nil {
+				log.Printf("LocalStorage: RemoveAll child '%s' retry failed: %v", item.Name(), err)
+			}
 		}
 		return nil
 	}
-	return os.RemoveAll(local)
+	err := retryOperation(func() error {
+		return os.RemoveAll(local)
+	})
+	if err != nil {
+		log.Printf("LocalStorage: RemoveAll '%s' retry failed: %v", local, err)
+	}
+	return err
 }
 
 func (s *LocalStorage) ReadDir(p string) ([]FileMeta, error) {
@@ -146,6 +170,7 @@ func (s *LocalStorage) ReadDir(p string) ([]FileMeta, error) {
 		childPath := path.Join(p, entry.Name())
 		meta, err := s.Get(childPath)
 		if err != nil {
+			log.Printf("LocalStorage: ReadDir Get child '%s' error: %v", childPath, err)
 			continue
 		}
 		if meta != nil {
@@ -159,11 +184,82 @@ func (s *LocalStorage) Rename(oldPath, newPath string) error {
 	oldLocal := s.getLocalPath(oldPath)
 	newLocal := s.getLocalPath(newPath)
 
+	log.Printf("LocalStorage: Rename '%s' -> '%s'", oldLocal, newLocal)
+
 	if err := os.MkdirAll(filepath.Dir(newLocal), 0755); err != nil {
+		log.Printf("LocalStorage: MkdirAll failed for Rename: %v", err)
 		return err
 	}
 
-	return os.Rename(oldLocal, newLocal)
+	err := retryOperation(func() error {
+		return os.Rename(oldLocal, newLocal)
+	})
+	if err == nil {
+		return nil
+	}
+
+	log.Printf("LocalStorage: Rename failed, attempting fallback Copy+Delete: %v", err)
+
+	// Fallback: Recursive Copy then Delete
+	if err := copyDir(oldLocal, newLocal); err != nil {
+		log.Printf("LocalStorage: Fallback Copy failed: %v", err)
+		return err
+	}
+
+	if err := s.RemoveAll(oldPath); err != nil {
+		log.Printf("LocalStorage: Fallback Delete failed: %v", err)
+	}
+	return nil
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	if _, err = io.Copy(out, in); err != nil {
+		return err
+	}
+	return nil
+}
+
+func copyDir(src, dst string) error {
+	src = filepath.Clean(src)
+	dst = filepath.Clean(dst)
+
+	si, err := os.Stat(src)
+	if err != nil {
+		return err
+	}
+	if !si.IsDir() {
+		return copyFile(src, dst)
+	}
+
+	if err := os.MkdirAll(dst, si.Mode()); err != nil {
+		return err
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return err
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+		if err := copyDir(srcPath, dstPath); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *LocalStorage) Close() error {
