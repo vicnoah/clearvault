@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  clearvault:
+    build: .
+    container_name: clearvault
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    volumes:
+      # Configuration file
+      - ./config.yaml:/app/config.yaml:ro
+      # Metadata storage (persistent)
+      - ./storage:/app/storage
+    environment:
+      # Optional: Override config with environment variables
+      # - LISTEN=0.0.0.0:8080
+      # - WEBDAV_PREFIX=/dav
+      # - AUTH_USERNAME=admin
+      # - AUTH_PASSWORD=your-password
+      # - MASTER_KEY=your-32-byte-master-key
+      # - METADATA_TYPE=local
+      # - METADATA_PATH=/app/storage/metadata
+      # - REMOTE_URL=https://your-webdav.com/dav/
+      # - REMOTE_USERNAME=user
+      # - REMOTE_PASSWORD=pass
+      # - REMOTE_BASE_PATH=clearvault
+      - TZ=Asia/Shanghai
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/dav/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    networks:
+      - clearvault-network
+
+networks:
+  clearvault-network:
+    driver: bridge

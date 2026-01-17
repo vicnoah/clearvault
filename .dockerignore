@@ -1,0 +1,42 @@
+# Binaries
+clearvault
+clearvault.exe
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Test binary
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config and data (should be mounted as volumes)
+config.yaml
+config.yml
+storage/
+
+# Logs
+*.log
+
+# Temporary files
+tmp/
+temp/

@@ -1,0 +1,37 @@
+# ClearVault 配置文件示例
+
+# 监听地址和端口
+# Docker 部署时建议使用 0.0.0.0 以允许容器外访问
+listen: "127.0.0.1:8080"
+
+# 认证信息
+auth:
+  username: "admin"
+  password: "change-this-password"
+
+# 主加密密钥（32字节）
+# 警告：请务必修改此密钥！使用强随机密码！
+# 可以使用以下命令生成：openssl rand -base64 32
+master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
+
+# 元数据存储配置
+metadata:
+  # 类型: local (文件系统) 或 sqlite (数据库)
+  type: "local"
+  
+  # Local 类型配置
+  path: "storage/metadata"
+  
+  # SQLite 类型配置（type 为 sqlite 时使用）
+  # db_path: "storage/metadata.db"
+
+# 远端 WebDAV 存储配置
+remote:
+  # 远端 WebDAV 服务器地址
+  # Nextcloud 示例: https://cloud.example.com/remote.php/dav/files/username/
+  # 坚果云示例: https://dav.jianguoyun.com/dav/
+  url: "https://your-webdav-server.com/remote.php/dav/files/username/"
+  
+  # 远端 WebDAV 认证信息
+  username: "your-webdav-username"
+  password: "your-webdav-password"
