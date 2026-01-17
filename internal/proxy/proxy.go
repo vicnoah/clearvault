@@ -15,13 +15,15 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
 type Proxy struct {
-	meta      metadata.Storage
-	remote    *webdav.RemoteClient
-	masterKey []byte
+	meta         metadata.Storage
+	remote       *webdav.RemoteClient
+	masterKey    []byte
+	pendingSizes sync.Map // path -> int64
 }
 
 func NewProxy(meta metadata.Storage, remote *webdav.RemoteClient, masterKeyBase64 string) (*Proxy, error) {
@@ -34,6 +36,24 @@ func NewProxy(meta metadata.Storage, remote *webdav.RemoteClient, masterKeyBase6
 		remote:    remote,
 		masterKey: key,
 	}, nil
+}
+
+func (p *Proxy) SetPendingSize(path string, size int64) {
+	path = p.normalizePath(path)
+	p.pendingSizes.Store(path, size)
+}
+
+func (p *Proxy) GetPendingSize(path string) int64 {
+	path = p.normalizePath(path)
+	if v, ok := p.pendingSizes.Load(path); ok {
+		return v.(int64)
+	}
+	return 0
+}
+
+func (p *Proxy) ClearPendingSize(path string) {
+	path = p.normalizePath(path)
+	p.pendingSizes.Delete(path)
 }
 
 // encryptFEK encrypts the File Encryption Key with the Master Key.
@@ -132,9 +152,9 @@ func (p *Proxy) SavePlaceholder(pname string) error {
 	return p.meta.Save(meta)
 }
 
-func (p *Proxy) UploadFile(pname string, r io.Reader) error {
+func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 	pname = p.normalizePath(pname)
-	log.Printf("Proxy: UploadFile (Streaming) starting for '%s'", pname)
+	log.Printf("Proxy: UploadFile (Streaming) starting for '%s' (size: %d)", pname, size)
 
 	// Check if there's a temporary placeholder from previous 0-byte upload
 	existingMeta, _ := p.meta.Get(pname)
@@ -161,6 +181,7 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 
 	// Create pipe for streaming encryption
 	pr, pw := io.Pipe()
+
 	engine, err := crypto.NewEngine(fek)
 	if err != nil {
 		return err
@@ -175,10 +196,15 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 		errChan <- err
 	}()
 
-	err = p.remote.Upload(remoteName, pr)
-	if err != nil {
-		log.Printf("Proxy: Remote Upload failed for '%s': %v", pname, err)
-		return err
+	var encSize int64
+	if size > 0 {
+		encSize = crypto.CalculateEncryptedSize(size)
+
+		err = p.remote.Upload(remoteName, pr, encSize)
+		if err != nil {
+			log.Printf("Proxy: Remote Upload failed for '%s': %v", pname, err)
+			return err
+		}
 	}
 
 	// Check encryption error

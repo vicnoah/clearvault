@@ -56,7 +56,7 @@ func TestIntegrationLocalMock(t *testing.T) {
 	// Test Upload
 	testFile := "/test.txt"
 	content := []byte("Mock Integration Test Content")
-	err = p.UploadFile(testFile, bytes.NewReader(content))
+	err = p.UploadFile(testFile, bytes.NewReader(content), -1)
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}

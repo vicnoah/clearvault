@@ -54,7 +54,7 @@ func TestZeroByteFileUpload(t *testing.T) {
 	}
 
 	// 1. Upload 0-byte file (RaiDrive Phase 1)
-	err = p.UploadFile("/test.txt", bytes.NewReader([]byte{}))
+	err = p.UploadFile("/test.txt", bytes.NewReader([]byte{}), -1)
 	if err != nil {
 		t.Fatalf("UploadFile (0-byte) failed: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestZeroByteFileUpload(t *testing.T) {
 		t.Fatalf("DownloadFile failed: %v", err)
 	}
 	defer rc.Close()
-	
+
 	content, err := io.ReadAll(rc)
 	if err != nil {
 		t.Fatalf("Failed to read downloaded content: %v", err)

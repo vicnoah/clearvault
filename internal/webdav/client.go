@@ -3,10 +3,9 @@ package webdav
 import (
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 
-	"github.com/studio-b12/gowebdav"
+	"clearvault/pkg/gowebdav"
 )
 
 type RemoteClient struct {
@@ -26,49 +25,59 @@ func NewRemoteClient(url, user, pass string) *RemoteClient {
 	}
 }
 
-func (c *RemoteClient) Upload(name string, data io.Reader) error {
-	// Use native http.Client to ensure streaming with chunked encoding
-	// gowebdav.WriteStream might buffer or handle things differently depending on version
-
-	// Manually construct URL since FixPath is not exported or available
-	// Simple join, assuming url has no trailing slash or handled
-	// Note: name usually comes from our Proxy which normalizes it.
-
-	// Trim leading slash from name to avoid double slash
-	if len(name) > 0 && name[0] == '/' {
-		name = name[1:]
-	}
-
-	fullUrl := c.url
-	if fullUrl[len(fullUrl)-1] != '/' {
-		fullUrl += "/"
-	}
-	fullUrl += name
-
-	req, err := http.NewRequest("PUT", fullUrl, data)
-	if err != nil {
-		return err
-	}
-
-	req.ContentLength = -1 // Force chunked encoding
-	req.Header.Set("Content-Type", "application/octet-stream")
-
-	if c.user != "" || c.pass != "" {
-		req.SetBasicAuth(c.user, c.pass)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return fmt.Errorf("upload failed with status: %s", resp.Status)
-	}
-
-	return nil
+func (c *RemoteClient) Upload(name string, data io.Reader, size int64) error {
+	fmt.Printf("文件流式上传: Uploading %s with size %d\n", name, size)
+	return c.client.WriteStreamWithLength(name, data, size, os.ModePerm)
 }
+
+// func (c *RemoteClient) Upload(name string, data io.Reader, size int64) error {
+// 	// Use native http.Client to ensure streaming
+// 	// If size is provided (> 0), we set ContentLength. Otherwise we use Chunked Encoding.
+
+// 	// Manually construct URL since FixPath is not exported or available
+// 	// Simple join, assuming url has no trailing slash or handled
+// 	// Note: name usually comes from our Proxy which normalizes it.
+
+// 	if size > 0 {
+// 		fmt.Printf("文件流式上传: Uploading %s with size %d\n", name, size)
+// 		return c.client.WriteStreamWithLength(name, data, size, os.ModePerm)
+// 	}
+
+// 	// Trim leading slash from name to avoid double slash
+// 	if len(name) > 0 && name[0] == '/' {
+// 		name = name[1:]
+// 	}
+
+// 	fullUrl := c.url
+// 	if fullUrl[len(fullUrl)-1] != '/' {
+// 		fullUrl += "/"
+// 	}
+// 	fullUrl += name
+
+// 	req, err := http.NewRequest("PUT", fullUrl, data)
+// 	if err != nil {
+// 		return err
+// 	}
+
+// 	req.ContentLength = -1 // Force chunked encoding
+// 	req.Header.Set("Content-Type", "application/octet-stream")
+
+// 	if c.user != "" || c.pass != "" {
+// 		req.SetBasicAuth(c.user, c.pass)
+// 	}
+
+// 	resp, err := http.DefaultClient.Do(req)
+// 	if err != nil {
+// 		return err
+// 	}
+// 	defer resp.Body.Close()
+
+// 	if resp.StatusCode >= 400 {
+// 		return fmt.Errorf("upload failed with status: %s", resp.Status)
+// 	}
+
+// 	return nil
+// }
 
 func (c *RemoteClient) Download(name string) (io.ReadCloser, error) {
 	return c.client.ReadStream(name)

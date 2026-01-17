@@ -48,7 +48,7 @@ func TestIntegration(t *testing.T) {
 	content := []byte("Clearvault Integration Test Content")
 
 	t.Logf("Starting UploadFile...")
-	err = p.UploadFile(testFile, bytes.NewReader(content))
+	err = p.UploadFile(testFile, bytes.NewReader(content), -1)
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}

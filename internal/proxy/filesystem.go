@@ -37,6 +37,10 @@ func (fs *FileSystem) Mkdir(ctx context.Context, name string, perm os.FileMode) 
 	return fs.p.meta.Save(meta)
 }
 
+func (fs *FileSystem) SetPendingSize(name string, size int64) {
+	fs.p.SetPendingSize(name, size)
+}
+
 func (fs *FileSystem) OpenFile(ctx context.Context, name string, flag int, perm os.FileMode) (webdav.File, error) {
 	name = fs.p.normalizePath(name)
 	log.Printf("FS OpenFile: '%s' (flag: %d, perm: %v)", name, flag, perm)
@@ -50,10 +54,18 @@ func (fs *FileSystem) OpenFile(ctx context.Context, name string, flag int, perm 
 
 	if flag&os.O_CREATE != 0 {
 		log.Printf("FS OpenFile: creating new file '%s'", name)
+
+		size := fs.p.GetPendingSize(name)
+		if size > 0 {
+			log.Printf("FS OpenFile: found pending size %d for '%s'", size, name)
+			fs.p.ClearPendingSize(name)
+		}
+
 		return &ProxyFile{
 			fs:    fs,
 			name:  name,
 			isNew: true,
+			size:  size,
 		}, nil
 	}
 
@@ -114,6 +126,7 @@ type ProxyFile struct {
 	meta  *metadata.FileMeta
 	isDir bool
 	isNew bool
+	size  int64
 
 	// Upload fields
 	pipeWriter  *io.PipeWriter
@@ -294,7 +307,7 @@ func (f *ProxyFile) Write(p []byte) (n int, err error) {
 
 			go func() {
 				// UploadFile closes pr when done reading
-				err := f.fs.p.UploadFile(f.name, pr)
+				err := f.fs.p.UploadFile(f.name, pr, f.size)
 				f.uploadErr <- err
 			}()
 		}
