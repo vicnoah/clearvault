@@ -166,20 +166,48 @@ docker run -d \
 除了使用配置文件，也可以通过环境变量配置：
 
 ```bash
+# 方案 A：使用配置文件启动
 docker run -d \
   --name clearvault \
   -p 8080:8080 \
-  -e LISTEN="0.0.0.0:8080" \
-  -e WEBDAV_PREFIX="/dav" \
-  -e AUTH_USERNAME="admin" \
-  -e AUTH_PASSWORD="your-password" \
-  -e MASTER_KEY="your-32-byte-master-key" \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/storage:/app/storage \
+  clearvault:latest
+
+# 方案 B：完全使用环境变量启动（无需配置文件）
+# 生成随机密钥的命令：openssl rand -base64 32
+docker run -d \
+  --name clearvault \
+  -p 8080:8080 \
+  -e MASTER_KEY="your-generated-base64-key" \
+  -e SERVER_LISTEN="0.0.0.0:8080" \
+  -e SERVER_AUTH_USER="admin" \
+  -e SERVER_AUTH_PASS="your-password" \
   -e REMOTE_URL="https://your-webdav.com/dav/" \
-  -e REMOTE_USERNAME="user" \
-  -e REMOTE_PASSWORD="pass" \
+  -e REMOTE_USER="user" \
+  -e REMOTE_PASS="pass" \
+  -e STORAGE_METADATA_TYPE="local" \
   -v $(pwd)/storage:/app/storage \
   clearvault:latest
 ```
+
+支持的环境变量列表（可覆盖 config.yaml 或直接作为配置使用）：
+- `MASTER_KEY` (无配置文件启动时必填)
+- `SERVER_LISTEN`
+- `SERVER_BASE_URL`
+- `SERVER_AUTH_USER`
+- `SERVER_AUTH_PASS`
+- `STORAGE_METADATA_TYPE`
+- `STORAGE_METADATA_PATH`
+- `STORAGE_CACHE_DIR`
+- `REMOTE_URL`
+- `REMOTE_USER`
+- `REMOTE_PASS`
+
+**注意**：
+1. 如果不使用 `config.yaml` 启动，必须手动提供 `MASTER_KEY` 环境变量，否则程序将报错退出。
+2. 在有 `config.yaml` 的情况下，环境变量将覆盖文件中的对应配置。
+
 
 ## 🔧 配置说明
 

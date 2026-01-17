@@ -46,24 +46,73 @@ type StorageConfig struct {
 }
 
 func LoadConfig(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, err
-	}
-
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+	var configFileExists bool
+
+	data, err := os.ReadFile(path)
+	if err == nil {
+		configFileExists = true
+		if err := yaml.Unmarshal(data, &cfg); err != nil {
+			return nil, err
+		}
+	} else if !os.IsNotExist(err) {
+		// Return error if it's not a "file not found" error (e.g., permissions)
 		return nil, err
 	}
 
-	// Auto-generate master key if empty
+	// Always override with environment variables
+	processEnvOverrides(&cfg)
+
+	// Validate or Generate Master Key
 	if cfg.Security.MasterKey == "" || cfg.Security.MasterKey == "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY" {
-		if err := generateAndSaveMasterKey(path, &cfg); err != nil {
-			return nil, err
+		if configFileExists {
+			// If we have a config file, we can safely auto-generate and save
+			if err := generateAndSaveMasterKey(path, &cfg); err != nil {
+				return nil, err
+			}
+		} else {
+			// No config file and no master key provided via environment -> Error
+			return nil, fmt.Errorf("MASTER_KEY environment variable is required when running without a configuration file")
 		}
 	}
 
 	return &cfg, nil
+}
+
+func processEnvOverrides(cfg *Config) {
+	if v := os.Getenv("SERVER_LISTEN"); v != "" {
+		cfg.Server.Listen = v
+	}
+	if v := os.Getenv("SERVER_BASE_URL"); v != "" {
+		cfg.Server.BaseURL = v
+	}
+	if v := os.Getenv("SERVER_AUTH_USER"); v != "" {
+		cfg.Server.Auth.User = v
+	}
+	if v := os.Getenv("SERVER_AUTH_PASS"); v != "" {
+		cfg.Server.Auth.Pass = v
+	}
+	if v := os.Getenv("STORAGE_METADATA_TYPE"); v != "" {
+		cfg.Storage.MetadataType = v
+	}
+	if v := os.Getenv("STORAGE_METADATA_PATH"); v != "" {
+		cfg.Storage.MetadataPath = v
+	}
+	if v := os.Getenv("STORAGE_CACHE_DIR"); v != "" {
+		cfg.Storage.CacheDir = v
+	}
+	if v := os.Getenv("REMOTE_URL"); v != "" {
+		cfg.Remote.URL = v
+	}
+	if v := os.Getenv("REMOTE_USER"); v != "" {
+		cfg.Remote.User = v
+	}
+	if v := os.Getenv("REMOTE_PASS"); v != "" {
+		cfg.Remote.Pass = v
+	}
+	if v := os.Getenv("MASTER_KEY"); v != "" {
+		cfg.Security.MasterKey = v
+	}
 }
 
 func generateAndSaveMasterKey(configPath string, cfg *Config) error {
@@ -89,14 +138,21 @@ func generateAndSaveMasterKey(configPath string, cfg *Config) error {
 
 	// Replace master_key line
 	lines := strings.Split(string(originalData), "\n")
+	found := false
 	for i, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "master_key:") {
 			// Preserve indentation
 			indent := strings.Repeat(" ", len(line)-len(strings.TrimLeft(line, " ")))
 			lines[i] = fmt.Sprintf("%smaster_key: \"%s\"", indent, encodedKey)
+			found = true
 			break
 		}
+	}
+
+	if !found {
+		// Log warning and return if not found (don't want to corrupt file structure)
+		log.Printf("Warning: Could not find 'master_key:' line in config file to update.")
 	}
 
 	// Write back to file

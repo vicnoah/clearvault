@@ -166,20 +166,48 @@ docker run -d \
 Besides using a configuration file, you can also configure via environment variables:
 
 ```bash
+# Option A: Start with a configuration file
 docker run -d \
   --name clearvault \
   -p 8080:8080 \
-  -e LISTEN="0.0.0.0:8080" \
-  -e WEBDAV_PREFIX="/dav" \
-  -e AUTH_USERNAME="admin" \
-  -e AUTH_PASSWORD="your-password" \
-  -e MASTER_KEY="your-32-byte-master-key" \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v $(pwd)/storage:/app/storage \
+  clearvault:latest
+
+# Option B: Start entirely with environment variables (no config file needed)
+# Command to generate a random key: openssl rand -base64 32
+docker run -d \
+  --name clearvault \
+  -p 8080:8080 \
+  -e MASTER_KEY="your-generated-base64-key" \
+  -e SERVER_LISTEN="0.0.0.0:8080" \
+  -e SERVER_AUTH_USER="admin" \
+  -e SERVER_AUTH_PASS="your-password" \
   -e REMOTE_URL="https://your-webdav.com/dav/" \
-  -e REMOTE_USERNAME="user" \
-  -e REMOTE_PASSWORD="pass" \
+  -e REMOTE_USER="user" \
+  -e REMOTE_PASS="pass" \
+  -e STORAGE_METADATA_TYPE="local" \
   -v $(pwd)/storage:/app/storage \
   clearvault:latest
 ```
+
+Supported Environment Variables (can override config.yaml or be used as primary configuration):
+- `MASTER_KEY` (Required if starting without a config file)
+- `SERVER_LISTEN`
+- `SERVER_BASE_URL`
+- `SERVER_AUTH_USER`
+- `SERVER_AUTH_PASS`
+- `STORAGE_METADATA_TYPE`
+- `STORAGE_METADATA_PATH`
+- `STORAGE_CACHE_DIR`
+- `REMOTE_URL`
+- `REMOTE_USER`
+- `REMOTE_PASS`
+
+**Notes**:
+1. If you are not using a `config.yaml` file, you MUST provide the `MASTER_KEY` environment variable; otherwise, the application will exit with an error.
+2. If `config.yaml` is present, environment variables will override the corresponding settings in the file.
+
 
 ## 🔧 Configuration Guide
 
