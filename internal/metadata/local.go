@@ -228,7 +228,7 @@ func copyFile(src, dst string) error {
 	if _, err = io.Copy(out, in); err != nil {
 		return err
 	}
-	return nil
+	return out.Sync()
 }
 
 func copyDir(src, dst string) error {
