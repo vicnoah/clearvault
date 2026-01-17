@@ -86,6 +86,40 @@ func (p *Proxy) normalizePath(pname string) string {
 func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 	pname = p.normalizePath(pname)
 	log.Printf("Proxy: UploadFile starting for '%s'", pname)
+
+	// Read all data first to determine actual size
+	// This prevents uploading empty placeholder files from RaiDrive's two-phase PUT
+	data, err := io.ReadAll(r)
+	if err != nil {
+		return err
+	}
+
+	cleartextSize := int64(len(data))
+
+	// If file is empty (0 bytes), save temporary metadata placeholder
+	// RaiDrive sends empty PUT first, then checks if file exists (PROPFIND/HEAD)
+	// If we return 404, RaiDrive enters infinite retry loop
+	if cleartextSize == 0 {
+		log.Printf("Proxy: Saving temporary placeholder for 0-byte file '%s'", pname)
+		meta := &metadata.FileMeta{
+			Path:       pname,
+			RemoteName: ".pending", // Special marker for temporary placeholder
+			Size:       0,
+			IsDir:      false,
+			FEK:        []byte{},
+			Salt:       []byte{},
+			UpdatedAt:  time.Now(),
+		}
+		return p.meta.Save(meta)
+	}
+
+	// Check if there's a temporary placeholder from previous 0-byte upload
+	// If so, we can safely ignore it (it will be overwritten by real metadata)
+	existingMeta, _ := p.meta.Get(pname)
+	if existingMeta != nil && existingMeta.RemoteName == ".pending" {
+		log.Printf("Proxy: Replacing temporary placeholder with real file for '%s'", pname)
+	}
+
 	fek, err := crypto.GenerateRandomBytes(32)
 	if err != nil {
 		return err
@@ -103,10 +137,6 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 	remoteName := p.generateRemoteName()
 	log.Printf("Proxy: Uploading to remote as '%s'", remoteName)
 
-	// Track size
-	var cleartextSize int64
-	sizeReader := io.TeeReader(r, &sizeWriter{size: &cleartextSize})
-
 	// Create pipe for streaming encryption
 	pr, pw := io.Pipe()
 	engine, err := crypto.NewEngine(fek)
@@ -115,7 +145,7 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 	}
 
 	go func() {
-		err := engine.EncryptStream(sizeReader, pw, salt)
+		err := engine.EncryptStream(bytes.NewReader(data), pw, salt)
 		pw.CloseWithError(err)
 	}()
 
@@ -207,6 +237,12 @@ func (p *Proxy) DownloadFile(pname string) (io.ReadCloser, error) {
 	meta, err := p.meta.Get(pname)
 	if err != nil || meta == nil {
 		return nil, fmt.Errorf("file not found: %s", pname)
+	}
+
+	// If this is a temporary placeholder (0-byte upload), return empty reader
+	if meta.RemoteName == ".pending" {
+		log.Printf("Proxy: Returning empty content for temporary placeholder '%s'", pname)
+		return io.NopCloser(bytes.NewReader([]byte{})), nil
 	}
 
 	fek, err := p.decryptFEK(meta.FEK)
