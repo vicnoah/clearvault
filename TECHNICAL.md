@@ -483,20 +483,46 @@ func copyFile(src, dst string) error {
 
 ## 性能优化
 
-### 真正的流式上传 (OOM 修复)
+### 真正的流式上传 (OOM 修复与 Content-Length 优化)
 
-**问题**：早期版本使用 `gowebdav` 库时，对于未知大小的流（加密流），库可能会尝试读取整个流到内存以计算 `Content-Length`，或者未正确处理分块传输，导致上传大文件（如视频）时发生 OOM (Out Of Memory)。
+**问题 1：内存溢出 (OOM)**
+早期版本使用 `gowebdav` 库时，对于未知大小的流（如加密流），库可能会尝试读取整个流到内存以计算 `Content-Length`，或者未正确处理分块传输，导致上传大文件（如视频）时发生 OOM。
 
-**解决**：
-1. **原生 HTTP Client**：替换 `gowebdav` 的上传实现，直接使用 Go 原生 `http.Client`。
-2. **Chunked Transfer Encoding**：显式设置 `req.ContentLength = -1`，强制使用 HTTP 分块传输编码。
-3. **管道连接**：`ProxyFile.Write` -> `io.Pipe` -> `CryptoEngine` -> `http.Client` -> Remote WebDAV。数据在内存中仅做极小缓冲，实现真正的流式传输。
+**问题 2：gowebdav 库的流处理行为**
+`gowebdav` 库在处理认证重试（如 401 Unauthorized -> 携带 Token 重试）时，若 `http.Request.GetBody` 为 nil（流式 Body 默认情况），会尝试重新读取 Body。如果 Body 是 `io.Pipe` 等不可回溯的流，这将导致上传失败或被库内部缓冲机制读入内存。
+
+**综合解决方案**：
+
+1. **原生 HTTP Client 与流式控制**：
+   在 `RemoteClient.Upload` 中，不再依赖 `gowebdav` 的高层封装，而是直接使用 Go 原生 `http.Client` 构造请求。这赋予我们对 `Content-Length` 和 Body 处理的完全控制权。
+
+2. **智能 Content-Length 处理**：
+   - **定长流（优选）**：如果 WebDAV 客户端在 `PUT` 请求中提供了 `Content-Length`，代理层会捕获该长度，结合加密算法（AES-GCM 增加的 Tag 开销）预计算出最终密文大小。
+     ```go
+     // engine.go
+     func CalculateEncryptedSize(originalSize int64) int64 {
+         numChunks := (originalSize + ChunkSize - 1) / ChunkSize
+         return originalSize + numChunks*TagSize
+     }
+     ```
+     随后，`RemoteClient` 会设置准确的 `Content-Length` 头。这不仅避免了分块传输的开销，还让远端服务器能更好地分配资源和显示进度。
+   
+   - **不定长流（兜底）**：如果无法获取原始长度，则回退到 Chunked Transfer Encoding (`req.ContentLength = -1`)，确保大文件依然可以安全上传，仅牺牲少量进度条准确性。
+
+3. **管道连接 (Pipeline)**：
+   数据流向：`Client` -> `ProxyFile.Write` -> `io.Pipe` -> `CryptoEngine` -> `http.Client` -> `Remote WebDAV`。全链路内存占用恒定（约为 ChunkSize * 并发数），与文件大小无关。
 
 ```go
-// client.go
-req, _ := http.NewRequest("PUT", url, pipeReader)
-req.ContentLength = -1 // Force chunked encoding
-http.DefaultClient.Do(req)
+// internal/webdav/client.go
+func (c *RemoteClient) Upload(name string, data io.Reader, size int64) error {
+    // ...
+    if size > 0 {
+        req.ContentLength = size
+    } else {
+        req.ContentLength = -1 // Force chunked encoding
+    }
+    // ...
+}
 ```
 
 ### 范围请求支持 (Range Requests)
