@@ -5,12 +5,14 @@ import (
 	"clearvault/internal/crypto"
 	"clearvault/internal/metadata"
 	"clearvault/internal/webdav"
+	sysrand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
+	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -60,9 +62,17 @@ func (p *Proxy) decryptFEK(encryptedFEK []byte) ([]byte, error) {
 	return buf.Bytes(), err
 }
 
-func (p *Proxy) generateRemoteName(path string) string {
-	hash := sha256.Sum256([]byte(path))
-	return hex.EncodeToString(hash[:])
+func (p *Proxy) generateRemoteName() string {
+	b := make([]byte, 32)
+	// We use crypto/rand directly since we aliased internal crypto.
+	// Wait, I didn't alias it in the previous chunk. I'll just use "crypto/rand" by its default name "rand".
+	// But "crypto" is already used for internal crypto.
+	// I'll use sysrand.
+	if _, err := io.ReadFull(sysrand.Reader, b); err != nil {
+		hash := sha256.Sum256([]byte(time.Now().String()))
+		return hex.EncodeToString(hash[:])
+	}
+	return hex.EncodeToString(b)
 }
 
 func (p *Proxy) GetFileMeta(path string) (*metadata.FileMeta, error) {
@@ -91,7 +101,7 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 		return err
 	}
 
-	remoteName := p.generateRemoteName(pname)
+	remoteName := p.generateRemoteName()
 	log.Printf("Proxy: Uploading to remote as '%s'", remoteName)
 
 	// Track size
@@ -139,6 +149,56 @@ func (sw *sizeWriter) Write(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
+func (p *Proxy) RemoveAll(pname string) error {
+	pname = p.normalizePath(pname)
+	log.Printf("Proxy: RemoveAll '%s'", pname)
+
+	meta, err := p.meta.GetByPath(pname)
+	if err != nil {
+		return err
+	}
+	if meta == nil {
+		return os.ErrNotExist
+	}
+
+	if meta.IsDir {
+		// Recursive delete
+		metas, err := p.meta.ListByPrefix(pname)
+		if err != nil {
+			return err
+		}
+
+		for _, m := range metas {
+			// Robust prefix check
+			if m.Path != pname && !strings.HasPrefix(m.Path, pname+"/") {
+				continue
+			}
+
+			if !m.IsDir {
+				log.Printf("Proxy: Deleting remote file '%s'", m.RemoteName)
+				err = p.remote.Delete(m.RemoteName)
+				if err != nil {
+					log.Printf("Proxy: Failed to delete remote file %s: %v", m.RemoteName, err)
+				}
+			}
+			err = p.meta.Delete(m.Path)
+			if err != nil {
+				log.Printf("Proxy: Failed to delete metadata for %s: %v", m.Path, err)
+			}
+		}
+	} else {
+		// Single file delete
+		log.Printf("Proxy: Deleting remote file '%s'", meta.RemoteName)
+		err = p.remote.Delete(meta.RemoteName)
+		if err != nil {
+			log.Printf("Proxy: Failed to delete remote file %s: %v", meta.RemoteName, err)
+		}
+		return p.meta.Delete(pname)
+	}
+
+	return nil
+}
+
 func (p *Proxy) RenameFile(oldPath, newPath string) error {
 	oldPath = p.normalizePath(oldPath)
 	newPath = p.normalizePath(newPath)
@@ -146,7 +206,10 @@ func (p *Proxy) RenameFile(oldPath, newPath string) error {
 	log.Printf("Proxy: RenameFile from '%s' to '%s' (metadata only)", oldPath, newPath)
 
 	meta, err := p.meta.GetByPath(oldPath)
-	if err != nil || meta == nil {
+	if err != nil {
+		return err
+	}
+	if meta == nil {
 		return fmt.Errorf("file not found: %s", oldPath)
 	}
 
@@ -158,6 +221,11 @@ func (p *Proxy) RenameFile(oldPath, newPath string) error {
 		}
 
 		for _, m := range metas {
+			// Robust prefix check
+			if m.Path != oldPath && !strings.HasPrefix(m.Path, oldPath+"/") {
+				continue
+			}
+
 			// Calculate new path
 			rel := strings.TrimPrefix(m.Path, oldPath)
 			targetPath := path.Join(newPath, rel)
@@ -168,7 +236,10 @@ func (p *Proxy) RenameFile(oldPath, newPath string) error {
 			updated.UpdatedAt = time.Now()
 
 			// Delete old and save new
-			p.meta.Delete(m.Path)
+			err = p.meta.Delete(m.Path)
+			if err != nil {
+				log.Printf("Proxy: Failed to delete old meta for %s: %v", m.Path, err)
+			}
 			err = p.meta.Save(&updated)
 			if err != nil {
 				log.Printf("Proxy: Failed to save updated meta for %s: %v", targetPath, err)

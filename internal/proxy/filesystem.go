@@ -28,7 +28,7 @@ func (fs *FileSystem) Mkdir(ctx context.Context, name string, perm os.FileMode) 
 	log.Printf("FS Mkdir: '%s'", name)
 	meta := &metadata.FileMeta{
 		Path:       name,
-		RemoteName: fs.p.generateRemoteName(name), // Identity for virtual directory
+		RemoteName: fs.p.generateRemoteName(), // Identity for virtual directory
 		IsDir:      true,
 		Size:       0,
 		FEK:        []byte{}, // Satisfy NOT NULL
@@ -81,19 +81,7 @@ func (fs *FileSystem) OpenFile(ctx context.Context, name string, flag int, perm 
 }
 
 func (fs *FileSystem) RemoveAll(ctx context.Context, name string) error {
-	name = fs.p.normalizePath(name)
-	meta, err := fs.p.GetFileMeta(name)
-	if err != nil || meta == nil {
-		return os.ErrNotExist
-	}
-
-	if !meta.IsDir {
-		err = fs.p.remote.Delete(meta.RemoteName)
-		if err != nil {
-			return err
-		}
-	}
-	return fs.p.meta.Delete(name)
+	return fs.p.RemoveAll(name)
 }
 
 func (fs *FileSystem) Rename(ctx context.Context, oldName, newName string) error {
