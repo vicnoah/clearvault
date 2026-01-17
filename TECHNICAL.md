@@ -273,18 +273,22 @@ type FileSystem interface {
 ```
 1. 客户端发送 PUT 请求
 2. WebDAV Handler 接收请求
-3. Proxy.UploadFile() 被调用
-   ├─ 读取所有数据到内存
+3. FS.OpenFile() 创建 ProxyFile (isNew=true)
+4. FS.Write() 被调用
+   ├─ 创建 io.Pipe (pr, pw)
+   ├─ 启动 goroutine 执行 Proxy.UploadFile(pr)
+   └─ 将数据写入 pw
+5. Proxy.UploadFile() 执行
    ├─ 检查是否为 0 字节（临时占位）
-   │  └─ 是：保存临时元数据 (RemoteName=".pending")
+   │  └─ 是：保存临时元数据 (RemoteName=".pending", 带有效 FEK/Salt)
    │  └─ 否：继续正常流程
    ├─ 生成随机 FEK 和 Salt
    ├─ 加密 FEK（使用主密钥）
    ├─ 生成随机远程文件名
-   ├─ 流式加密文件内容
-   ├─ 上传到远端 WebDAV
-   └─ 保存元数据
-4. 返回 201 Created
+   ├─ 启动 goroutine 进行流式加密 (Engine.EncryptStream)
+   ├─ 使用 http.Client (Chunked Encoding) 上传到远端 WebDAV
+   └─ 上传完成，保存元数据
+6. 返回 201 Created
 ```
 
 ### 下载文件（GET）
@@ -292,16 +296,18 @@ type FileSystem interface {
 ```
 1. 客户端发送 GET 请求
 2. WebDAV Handler 接收请求
-3. Proxy.DownloadFile() 被调用
-   ├─ 从元数据获取文件信息
+3. FS.OpenFile() -> ProxyFile
+4. ProxyFile.Read() 被调用
    ├─ 检查是否为临时占位文件
-   │  └─ 是：返回空 Reader
-   │  └─ 否：继续正常流程
-   ├─ 解密 FEK
-   ├─ 从远端下载加密文件
-   ├─ 流式解密文件内容
-   └─ 返回 ReadCloser
-4. 流式传输给客户端
+   │  └─ 是：返回 EOF (0字节)
+   │  └─ 否：调用 Proxy.DownloadRange()
+   ├─ Proxy.DownloadRange()
+   │  ├─ 计算请求范围对应的加密块 (Chunk) 范围
+   │  ├─ 从远端下载指定范围的加密数据
+   │  ├─ 启动 goroutine 进行流式解密 (Engine.DecryptStreamFrom)
+   │  └─ 返回 Reader
+   └─ 丢弃多余字节以对齐 Offset，返回数据
+5. 流式传输给客户端
 ```
 
 ### 重命名（MOVE）
@@ -350,11 +356,17 @@ RaiDrive 在上传文件时采用两阶段策略：
 ```go
 // 第一阶段：0 字节上传
 if fileSize == 0 {
+    // 生成有效的随机 FEK 和 Salt
+    fek := GenerateRandomBytes(32)
+    salt := GenerateRandomBytes(12)
+    
     // 保存临时元数据
     meta := &FileMeta{
         Path:       path,
         RemoteName: ".pending",  // 特殊标记
         Size:       0,
+        FEK:        Encrypt(fek), // 保存加密的 FEK
+        Salt:       salt,
         // ...
     }
     return meta.Save()
@@ -366,7 +378,7 @@ existingMeta, _ := GetMetadata(path)
 if existingMeta != nil && existingMeta.RemoteName == ".pending" {
     log.Printf("Replacing temporary placeholder")
 }
-// 正常上传流程...
+// 正常上传流程 (生成新的 FEK/Salt 并覆盖元数据)...
 ```
 
 ### 读取临时文件
@@ -386,10 +398,10 @@ func DownloadFile(path string) (io.ReadCloser, error) {
 
 ### 效果
 
+- ✅ **兼容性增强**：即使是占位文件也拥有完整的元数据结构（FEK/Salt），防止客户端 PROPFIND 或尝试读取时出错。
 - ✅ 避免 RaiDrive 无限重试
 - ✅ 不产生远端垃圾文件
 - ✅ 临时元数据自动被真实文件覆盖
-- ✅ 无需后台清理线程
 
 ## Windows 文件锁定处理
 
@@ -471,28 +483,42 @@ func copyFile(src, dst string) error {
 
 ## 性能优化
 
-### 流式处理
+### 真正的流式上传 (OOM 修复)
 
-**问题**：大文件一次性读入内存会导致内存溢出
+**问题**：早期版本使用 `gowebdav` 库时，对于未知大小的流（加密流），库可能会尝试读取整个流到内存以计算 `Content-Length`，或者未正确处理分块传输，导致上传大文件（如视频）时发生 OOM (Out Of Memory)。
 
-**解决**：使用 `io.Pipe` 实现流式加密/解密
+**解决**：
+1. **原生 HTTP Client**：替换 `gowebdav` 的上传实现，直接使用 Go 原生 `http.Client`。
+2. **Chunked Transfer Encoding**：显式设置 `req.ContentLength = -1`，强制使用 HTTP 分块传输编码。
+3. **管道连接**：`ProxyFile.Write` -> `io.Pipe` -> `CryptoEngine` -> `http.Client` -> Remote WebDAV。数据在内存中仅做极小缓冲，实现真正的流式传输。
 
 ```go
-// 上传时流式加密
-pr, pw := io.Pipe()
-go func() {
-    err := engine.EncryptStream(fileReader, pw, salt)
-    pw.CloseWithError(err)
-}()
-remote.Upload(remoteName, pr)  // 边加密边上传
+// client.go
+req, _ := http.NewRequest("PUT", url, pipeReader)
+req.ContentLength = -1 // Force chunked encoding
+http.DefaultClient.Do(req)
+```
 
-// 下载时流式解密
-pr, pw := io.Pipe()
-go func() {
-    err := engine.DecryptStream(remoteReader, pw, salt)
-    pw.CloseWithError(err)
-}()
-return pr  // 边下载边解密
+### 范围请求支持 (Range Requests)
+
+**问题**：视频播放和随机读取需要支持 HTTP Range 请求，而不是每次都下载整个文件。
+
+**解决**：
+1. **块对齐计算**：根据请求的字节范围 `[start, end]`，计算出覆盖该范围的加密块（AES-GCM Chunk）范围。
+2. **DecryptStreamFrom**：加密引擎新增方法，支持从指定的 Block Index 开始解密，而不是必须从头开始。
+3. **按需下载**：只向远端 WebDAV 请求必要的加密数据块。
+
+```go
+// 计算 Chunk
+startChunk := offset / ChunkSize
+encStart := startChunk * CipherChunkSize
+encLength := ...
+
+// 下载加密片段
+cipherStream := remote.DownloadRange(remoteName, encStart, encLength)
+
+// 从指定 Chunk 开始解密
+engine.DecryptStreamFrom(cipherStream, output, salt, startChunk)
 ```
 
 ### 元数据缓存
