@@ -15,17 +15,16 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
 type Proxy struct {
-	meta      *metadata.Manager
+	meta      metadata.Storage
 	remote    *webdav.RemoteClient
 	masterKey []byte
 }
 
-func NewProxy(meta *metadata.Manager, remote *webdav.RemoteClient, masterKeyBase64 string) (*Proxy, error) {
+func NewProxy(meta metadata.Storage, remote *webdav.RemoteClient, masterKeyBase64 string) (*Proxy, error) {
 	key, err := base64.StdEncoding.DecodeString(masterKeyBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode master key: %w", err)
@@ -76,7 +75,7 @@ func (p *Proxy) generateRemoteName() string {
 }
 
 func (p *Proxy) GetFileMeta(path string) (*metadata.FileMeta, error) {
-	return p.meta.GetByPath(path)
+	return p.meta.Get(path)
 }
 
 func (p *Proxy) normalizePath(pname string) string {
@@ -153,7 +152,7 @@ func (p *Proxy) RemoveAll(pname string) error {
 	pname = p.normalizePath(pname)
 	log.Printf("Proxy: RemoveAll '%s'", pname)
 
-	meta, err := p.meta.GetByPath(pname)
+	meta, err := p.meta.Get(pname)
 	if err != nil {
 		return err
 	}
@@ -161,112 +160,51 @@ func (p *Proxy) RemoveAll(pname string) error {
 		return os.ErrNotExist
 	}
 
-	if meta.IsDir {
-		// Recursive delete
-		metas, err := p.meta.ListByPrefix(pname)
-		if err != nil {
-			return err
-		}
-
-		for _, m := range metas {
-			// Robust prefix check
-			if m.Path != pname && !strings.HasPrefix(m.Path, pname+"/") {
-				continue
-			}
-
-			if !m.IsDir {
-				log.Printf("Proxy: Deleting remote file '%s'", m.RemoteName)
-				err = p.remote.Delete(m.RemoteName)
-				if err != nil {
-					log.Printf("Proxy: Failed to delete remote file %s: %v", m.RemoteName, err)
-				}
-			}
-			err = p.meta.Delete(m.Path)
-			if err != nil {
-				log.Printf("Proxy: Failed to delete metadata for %s: %v", m.Path, err)
-			}
-		}
-	} else {
-		// Single file delete
-		log.Printf("Proxy: Deleting remote file '%s'", meta.RemoteName)
+	if !meta.IsDir {
+		log.Printf("Proxy: Deleting single remote file '%s'", meta.RemoteName)
 		err = p.remote.Delete(meta.RemoteName)
 		if err != nil {
-			log.Printf("Proxy: Failed to delete remote file %s: %v", meta.RemoteName, err)
+			log.Printf("Proxy: Warning: Failed to delete remote file %s: %v", meta.RemoteName, err)
 		}
-		return p.meta.Delete(pname)
+	} else {
+		// Recursive delete for directory.
+		// We need to delete ALL remote files belonging to this tree.
+		// This is still a bit tricky because LocalStorage/SqliteStorage don't know about remote names across the tree efficiently.
+		// Wait, ReadDir only gives immediate children.
+		// For RemoveAll to be efficient, the Storage should maybe return all remote names in a tree?
+		// Or we just do a recursive walk here.
+		p.recursiveRemoteDelete(pname)
 	}
 
-	return nil
+	return p.meta.RemoveAll(pname)
+}
+
+func (p *Proxy) recursiveRemoteDelete(pname string) {
+	children, err := p.meta.ReadDir(pname)
+	if err != nil {
+		return
+	}
+	for _, child := range children {
+		if child.IsDir {
+			p.recursiveRemoteDelete(child.Path)
+		} else {
+			log.Printf("Proxy: Deleting remote file '%s' for '%s'", child.RemoteName, child.Path)
+			p.remote.Delete(child.RemoteName)
+		}
+	}
 }
 
 func (p *Proxy) RenameFile(oldPath, newPath string) error {
 	oldPath = p.normalizePath(oldPath)
 	newPath = p.normalizePath(newPath)
 
-	log.Printf("Proxy: RenameFile from '%s' to '%s' (metadata only)", oldPath, newPath)
-
-	meta, err := p.meta.GetByPath(oldPath)
-	if err != nil {
-		return err
-	}
-	if meta == nil {
-		return fmt.Errorf("file not found: %s", oldPath)
-	}
-
-	if meta.IsDir {
-		// Recursive rename for virtual directory
-		metas, err := p.meta.ListByPrefix(oldPath)
-		if err != nil {
-			return err
-		}
-
-		for _, m := range metas {
-			// Robust prefix check
-			if m.Path != oldPath && !strings.HasPrefix(m.Path, oldPath+"/") {
-				continue
-			}
-
-			// Calculate new path
-			rel := strings.TrimPrefix(m.Path, oldPath)
-			targetPath := path.Join(newPath, rel)
-
-			// Copy and update
-			updated := m
-			updated.Path = targetPath
-			updated.UpdatedAt = time.Now()
-
-			// Delete old and save new
-			err = p.meta.Delete(m.Path)
-			if err != nil {
-				log.Printf("Proxy: Failed to delete old meta for %s: %v", m.Path, err)
-			}
-			err = p.meta.Save(&updated)
-			if err != nil {
-				log.Printf("Proxy: Failed to save updated meta for %s: %v", targetPath, err)
-			}
-		}
-	} else {
-		// Single file rename
-		meta.Path = newPath
-		meta.UpdatedAt = time.Now()
-
-		err = p.meta.Delete(oldPath)
-		if err != nil {
-			return err
-		}
-
-		err = p.meta.Save(meta)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	log.Printf("Proxy: RenameFile from '%s' to '%s' (metadata layer)", oldPath, newPath)
+	return p.meta.Rename(oldPath, newPath)
 }
 
 func (p *Proxy) DownloadFile(pname string) (io.ReadCloser, error) {
 	pname = p.normalizePath(pname)
-	meta, err := p.meta.GetByPath(pname)
+	meta, err := p.meta.Get(pname)
 	if err != nil || meta == nil {
 		return nil, fmt.Errorf("file not found: %s", pname)
 	}

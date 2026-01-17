@@ -28,9 +28,10 @@ func TestIntegrationLocalMock(t *testing.T) {
 	ts := httptest.NewServer(mockHandler)
 	defer ts.Close()
 
-	// Setup Clearvault with local mock as remote
-	dbPath := "./test_clearvault_mock.db"
-	defer os.Remove(dbPath)
+	// Use local directory for metadata testing
+	metaDir := "./test_metadata_mock"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
 
 	cfg := &config.Config{
 		Remote: config.RemoteConfig{
@@ -43,8 +44,10 @@ func TestIntegrationLocalMock(t *testing.T) {
 		},
 	}
 
-	meta, _ := metadata.NewManager(dbPath)
-	defer meta.Close()
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
 
 	remote := webdav.NewRemoteClient(cfg.Remote.URL, cfg.Remote.User, cfg.Remote.Pass)
 	p, _ := proxy.NewProxy(meta, remote, cfg.Security.MasterKey)
@@ -53,18 +56,26 @@ func TestIntegrationLocalMock(t *testing.T) {
 	// Test Upload
 	testFile := "/test.txt"
 	content := []byte("Mock Integration Test Content")
-	err := p.UploadFile(testFile, bytes.NewReader(content))
+	err = p.UploadFile(testFile, bytes.NewReader(content))
 	if err != nil {
 		t.Fatalf("Upload failed: %v", err)
 	}
 
 	// Verify remote has an encrypted file (hash name)
-	metas, _ := meta.GetByPath(testFile)
+	metas, err := meta.Get(testFile)
+	if err != nil {
+		t.Fatalf("Get metadata failed: %v", err)
+	}
 	if metas == nil {
 		t.Fatal("Metadata not found after upload")
 	}
 	if _, err := os.Stat(mockRemoteDir + "/" + metas.RemoteName); err != nil {
-		t.Fatalf("Encrypted file not found on remote: %v", err)
+		files, _ := os.ReadDir(mockRemoteDir)
+		var names []string
+		for _, f := range files {
+			names = append(names, f.Name())
+		}
+		t.Fatalf("Encrypted file not found on remote: %v. RemoteName: %s. Files: %v", err, metas.RemoteName, names)
 	}
 
 	// Test Download

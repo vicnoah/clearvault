@@ -9,7 +9,6 @@ import (
 	"log"
 	"os"
 	"path"
-	"strings"
 	"time"
 
 	"golang.org/x/net/webdav"
@@ -209,33 +208,15 @@ func (f *ProxyFile) Readdir(count int) ([]os.FileInfo, error) {
 	dirPath := f.fs.p.normalizePath(f.name)
 	log.Printf("FS Readdir: '%s'", dirPath)
 
-	metas, err := f.fs.p.meta.ListByPrefix(dirPath)
+	metas, err := f.fs.p.meta.ReadDir(dirPath)
 	if err != nil {
 		return nil, err
 	}
 
 	infos := []os.FileInfo{}
 	for _, m := range metas {
-		// Standardize path from DB
-		mPath := f.fs.p.normalizePath(m.Path)
-		if mPath == dirPath {
-			continue
-		}
-
-		rel := strings.TrimPrefix(mPath, dirPath)
-		rel = strings.TrimPrefix(rel, "/")
-		if rel == "" {
-			continue
-		}
-
-		// Handle immediate children only
-		parent, child := path.Split(rel)
-		if parent != "" && parent != "." && parent != "/" {
-			continue
-		}
-
 		infos = append(infos, &FileInfo{
-			name:    child,
+			name:    path.Base(m.Path),
 			size:    m.Size,
 			isDir:   m.IsDir,
 			modTime: m.UpdatedAt,

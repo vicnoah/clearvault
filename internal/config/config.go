@@ -35,8 +35,9 @@ type SecurityConfig struct {
 }
 
 type StorageConfig struct {
-	DBPath   string `yaml:"db_path"`
-	CacheDir string `yaml:"cache_dir"`
+	MetadataType string `yaml:"metadata_type"` // "sqlite" or "local"
+	MetadataPath string `yaml:"metadata_path"` // db file for sqlite, dir for local
+	CacheDir     string `yaml:"cache_dir"`
 }
 
 func LoadConfig(path string) (*Config, error) {

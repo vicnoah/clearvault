@@ -8,11 +8,14 @@ import (
 )
 
 func TestSimpleProxy(t *testing.T) {
-	dbPath := "./test_simple.db"
-	defer os.Remove(dbPath)
+	metaDir := "./test_simple_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
 
-	meta, _ := metadata.NewManager(dbPath)
-	defer meta.Close()
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
 
 	// Use a mock or just the real client if possible, but let's see if NewProxy fails
 	masterKey := "dmVyeS1zZWNyZXQtbWFzdGVyLWtleS1zaG91bGQtYmUtMzItYnl0ZXM="

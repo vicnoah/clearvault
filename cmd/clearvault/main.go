@@ -21,9 +21,18 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 
-	meta, err := metadata.NewManager(cfg.Storage.DBPath)
+	var meta metadata.Storage
+	switch cfg.Storage.MetadataType {
+	case "sqlite":
+		meta, err = metadata.NewSqliteStorage(cfg.Storage.MetadataPath)
+	case "local", "":
+		meta, err = metadata.NewLocalStorage(cfg.Storage.MetadataPath)
+	default:
+		log.Fatalf("Unknown metadata type: %s", cfg.Storage.MetadataType)
+	}
+
 	if err != nil {
-		log.Fatalf("Failed to initialize metadata manager: %v", err)
+		log.Fatalf("Failed to initialize metadata storage: %v", err)
 	}
 	defer meta.Close()
 

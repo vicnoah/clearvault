@@ -13,9 +13,10 @@ import (
 )
 
 func TestIntegration(t *testing.T) {
-	// Use a temporary DB for testing
-	dbPath := "./test_clearvault.db"
-	defer os.Remove(dbPath)
+	// Use local directory for metadata testing
+	metaDir := "./test_metadata_integration"
+	os.RemoveAll(metaDir) // Pre-clean
+	defer os.RemoveAll(metaDir)
 
 	cfg := &config.Config{
 		Remote: config.RemoteConfig{
@@ -28,7 +29,7 @@ func TestIntegration(t *testing.T) {
 		},
 	}
 
-	meta, err := metadata.NewManager(dbPath)
+	meta, err := metadata.NewLocalStorage(metaDir)
 	if err != nil {
 		t.Fatalf("Failed to init metadata: %v", err)
 	}
