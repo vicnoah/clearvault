@@ -39,33 +39,34 @@ go build -o clearvault ./cmd/clearvault
 
 Create `config.yaml`:
 ```yaml
-# Listen address and port
-listen: "127.0.0.1:8080"
+server:
+  # Listen address and port
+  listen: "127.0.0.1:8080"
+  # WebDAV base URL (default is /)
+  base_url: "/dav"
+  
+  # Authentication credentials
+  auth:
+    user: "admin"
+    pass: "your-secure-password"
 
-# WebDAV path prefix
-webdav_prefix: "/dav"
+security:
+  # Master encryption key (32 bytes)
+  # If left empty or default, a secure key will be auto-generated and saved here on first run
+  master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
 
-# Authentication credentials
-auth:
-  username: "admin"
-  password: "your-secure-password"
-
-# Master encryption key (32 bytes)
-# If left empty or default, a secure key will be auto-generated and saved here on first run
-master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
-
-# Metadata storage configuration
-metadata:
-  type: "local"  # Options: local, sqlite
-  path: "storage/metadata"  # Path for local type
+storage:
+  # Metadata storage configuration
+  metadata_type: "local"  # Options: local, sqlite
+  metadata_path: "storage/metadata"  # Path for local type
   # db_path: "storage/metadata.db"  # Path for sqlite type
+  cache_dir: "storage/cache"
 
-# Remote WebDAV storage configuration
 remote:
+  # Remote WebDAV storage configuration
   url: "https://your-webdav-server.com/remote.php/dav/files/username/"
-  username: "your-webdav-username"
-  password: "your-webdav-password"
-  base_path: "clearvault"  # Base path on remote storage
+  user: "your-webdav-username"
+  pass: "your-webdav-password"
 ```
 
 4. **Start Service**

@@ -39,33 +39,34 @@ go build -o clearvault ./cmd/clearvault
 
 创建 `config.yaml`：
 ```yaml
-# 监听地址和端口
-listen: "127.0.0.1:8080"
+server:
+  # 监听地址和端口
+  listen: "127.0.0.1:8080"
+  # WebDAV 基础 URL（默认为 /）
+  base_url: "/dav"
+  
+  # 认证信息
+  auth:
+    user: "admin"
+    pass: "your-secure-password"
 
-# WebDAV 路径前缀
-webdav_prefix: "/dav"
+security:
+  # 主加密密钥（32字节）
+  # 如果留空或保持默认值，首次启动时将自动生成安全密钥并回写入此文件
+  master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
 
-# 认证信息
-auth:
-  username: "admin"
-  password: "your-secure-password"
-
-# 主加密密钥（32字节）
-# 如果留空或保持默认值，首次启动时将自动生成安全密钥并回写入此文件
-master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
-
-# 元数据存储配置
-metadata:
-  type: "local"  # 可选: local, sqlite
-  path: "storage/metadata"  # local 类型使用此路径
+storage:
+  # 元数据存储配置
+  metadata_type: "local"  # 可选: local, sqlite
+  metadata_path: "storage/metadata"  # local 类型使用此路径
   # db_path: "storage/metadata.db"  # sqlite 类型使用此路径
+  cache_dir: "storage/cache"
 
-# 远端 WebDAV 存储配置
 remote:
+  # 远端 WebDAV 存储配置
   url: "https://your-webdav-server.com/remote.php/dav/files/username/"
-  username: "your-webdav-username"
-  password: "your-webdav-password"
-  base_path: "clearvault"  # 远端存储的基础路径
+  user: "your-webdav-username"
+  pass: "your-webdav-password"
 ```
 
 4. **启动服务**

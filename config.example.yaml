@@ -1,29 +1,38 @@
 # ClearVault 配置文件示例
 
-# 监听地址和端口
-# Docker 部署时建议使用 0.0.0.0 以允许容器外访问
-listen: "127.0.0.1:8080"
+# 服务端配置
+server:
+  # 监听地址和端口
+  # Docker 部署时建议使用 0.0.0.0 以允许容器外访问
+  listen: "127.0.0.1:8080"
 
-# 认证信息
-auth:
-  username: "admin"
-  password: "change-this-password"
+  # WebDAV 基础 URL（默认为 /）
+  base_url: "/dav"
 
-# 主加密密钥（32字节）
-# 警告：请务必修改此密钥！使用强随机密码！
-# 可以使用以下命令生成：openssl rand -base64 32
-master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
+  # 认证信息
+  auth:
+    user: "admin"
+    pass: "change-this-password"
 
-# 元数据存储配置
-metadata:
-  # 类型: local (文件系统) 或 sqlite (数据库)
-  type: "local"
+# 安全配置
+security:
+  # 主加密密钥（32字节）
+  # 如果留空或保持默认值，首次启动时将自动生成安全密钥并回写入此文件
+  master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
+
+# 存储配置
+storage:
+  # 元数据存储类型: local (文件系统) 或 sqlite (数据库)
+  metadata_type: "local"
   
-  # Local 类型配置
-  path: "storage/metadata"
+  # Local 类型配置: 元数据存储路径
+  metadata_path: "storage/metadata"
   
   # SQLite 类型配置（type 为 sqlite 时使用）
   # db_path: "storage/metadata.db"
+
+  # 缓存目录
+  cache_dir: "storage/cache"
 
 # 远端 WebDAV 存储配置
 remote:
@@ -33,5 +42,5 @@ remote:
   url: "https://your-webdav-server.com/remote.php/dav/files/username/"
   
   # 远端 WebDAV 认证信息
-  username: "your-webdav-username"
-  password: "your-webdav-password"
+  user: "your-webdav-username"
+  pass: "your-webdav-password"
