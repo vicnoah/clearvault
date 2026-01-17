@@ -83,38 +83,60 @@ func (p *Proxy) normalizePath(pname string) string {
 	return cleaned
 }
 
-func (p *Proxy) UploadFile(pname string, r io.Reader) error {
-	pname = p.normalizePath(pname)
-	log.Printf("Proxy: UploadFile starting for '%s'", pname)
+type countReader struct {
+	r io.Reader
+	n int64
+}
 
-	// Read all data first to determine actual size
-	// This prevents uploading empty placeholder files from RaiDrive's two-phase PUT
-	data, err := io.ReadAll(r)
+func (c *countReader) Read(p []byte) (int, error) {
+	m, err := c.r.Read(p)
+	c.n += int64(m)
+	return m, err
+}
+
+func (p *Proxy) SavePlaceholder(pname string) error {
+	pname = p.normalizePath(pname)
+	log.Printf("Proxy: Saving temporary placeholder for 0-byte file '%s'", pname)
+
+	// Even for a placeholder, we should generate keys so that we can support valid metadata
+	// In case we want to support "reading" an empty file later (which returns 0 bytes anyway)
+	fek, err := crypto.GenerateRandomBytes(32)
+	if err != nil {
+		return err
+	}
+	salt, err := crypto.GenerateRandomBytes(12)
 	if err != nil {
 		return err
 	}
 
-	cleartextSize := int64(len(data))
-
-	// If file is empty (0 bytes), save temporary metadata placeholder
-	// RaiDrive sends empty PUT first, then checks if file exists (PROPFIND/HEAD)
-	// If we return 404, RaiDrive enters infinite retry loop
-	if cleartextSize == 0 {
-		log.Printf("Proxy: Saving temporary placeholder for 0-byte file '%s'", pname)
-		meta := &metadata.FileMeta{
-			Path:       pname,
-			RemoteName: ".pending", // Special marker for temporary placeholder
-			Size:       0,
-			IsDir:      false,
-			FEK:        []byte{},
-			Salt:       []byte{},
-			UpdatedAt:  time.Now(),
-		}
-		return p.meta.Save(meta)
+	encryptedFEK, err := p.encryptFEK(fek)
+	if err != nil {
+		return err
 	}
 
+	meta := &metadata.FileMeta{
+		Path:       pname,
+		RemoteName: ".pending",
+		Size:       0,
+		IsDir:      false,
+		FEK:        encryptedFEK,
+		Salt:       salt,
+		UpdatedAt:  time.Now(),
+	}
+	// Check if file already exists to update it instead of failing (though Save usually upserts)
+	// But more importantly, we need to make sure we don't overwrite a REAL file with a placeholder if it already exists?
+	// RaiDrive might do PUT 0-byte on existing file?
+	// If it exists and is NOT .pending, we probably shouldn't overwrite it with .pending unless we are sure.
+	// But standard WebDAV PUT overwrites. So yes, we should overwrite.
+
+	return p.meta.Save(meta)
+}
+
+func (p *Proxy) UploadFile(pname string, r io.Reader) error {
+	pname = p.normalizePath(pname)
+	log.Printf("Proxy: UploadFile (Streaming) starting for '%s'", pname)
+
 	// Check if there's a temporary placeholder from previous 0-byte upload
-	// If so, we can safely ignore it (it will be overwritten by real metadata)
 	existingMeta, _ := p.meta.Get(pname)
 	if existingMeta != nil && existingMeta.RemoteName == ".pending" {
 		log.Printf("Proxy: Replacing temporary placeholder with real file for '%s'", pname)
@@ -144,9 +166,13 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 		return err
 	}
 
+	cr := &countReader{r: r}
+	errChan := make(chan error, 1)
+
 	go func() {
-		err := engine.EncryptStream(bytes.NewReader(data), pw, salt)
+		err := engine.EncryptStream(cr, pw, salt)
 		pw.CloseWithError(err)
+		errChan <- err
 	}()
 
 	err = p.remote.Upload(remoteName, pr)
@@ -155,17 +181,31 @@ func (p *Proxy) UploadFile(pname string, r io.Reader) error {
 		return err
 	}
 
+	// Check encryption error
+	if encErr := <-errChan; encErr != nil {
+		return fmt.Errorf("encryption failed: %w", encErr)
+	}
+
+	// Update metadata with actual size
+	// Note: We need to handle the case where a .pending placeholder was created.
+	// UploadFile logic is separate from SavePlaceholder.
+	// If this UploadFile was called, it means we have data (or it's a 0-byte file that logic decided to upload real empty file? No, 0-byte goes to SavePlaceholder in FS).
+	// Wait, FS Close calls UploadFile ONLY if written is true (so size > 0) OR if it logic changes.
+	// In FS Close: if !f.written -> SavePlaceholder.
+	// So UploadFile here always has data > 0?
+	// Not necessarily, if someone calls UploadFile directly. But via FS, yes.
+
 	meta := &metadata.FileMeta{
 		Path:       pname,
 		RemoteName: remoteName,
-		Size:       cleartextSize,
+		Size:       cr.n,
 		IsDir:      false,
 		FEK:        encryptedFEK,
 		Salt:       salt,
 		UpdatedAt:  time.Now(),
 	}
 	err = p.meta.Save(meta)
-	log.Printf("Proxy: UploadFile finished for '%s' (size: %d, err: %v)", pname, cleartextSize, err)
+	log.Printf("Proxy: UploadFile finished for '%s' (size: %d, err: %v)", pname, cr.n, err)
 	return err
 }
 
@@ -263,6 +303,62 @@ func (p *Proxy) DownloadFile(pname string) (io.ReadCloser, error) {
 	pr, pw := io.Pipe()
 	go func() {
 		err := engine.DecryptStream(cipherRC, pw, meta.Salt)
+		cipherRC.Close()
+		pw.CloseWithError(err)
+	}()
+
+	return pr, nil
+}
+
+func (p *Proxy) DownloadRange(pname string, offset, length int64) (io.ReadCloser, error) {
+	pname = p.normalizePath(pname)
+	meta, err := p.meta.Get(pname)
+	if err != nil || meta == nil {
+		return nil, fmt.Errorf("file not found: %s", pname)
+	}
+
+	if meta.RemoteName == ".pending" {
+		return io.NopCloser(bytes.NewReader([]byte{})), nil
+	}
+
+	if meta.Size == 0 || offset >= meta.Size {
+		return io.NopCloser(bytes.NewReader([]byte{})), nil
+	}
+
+	fek, err := p.decryptFEK(meta.FEK)
+	if err != nil {
+		return nil, err
+	}
+
+	engine, err := crypto.NewEngine(fek)
+	if err != nil {
+		return nil, err
+	}
+
+	// Calculate chunks
+	startChunk := uint64(offset / crypto.ChunkSize)
+	endChunk := uint64((offset + length - 1) / crypto.ChunkSize)
+
+	// Cap endChunk to total chunks
+	totalChunks := uint64((meta.Size + crypto.ChunkSize - 1) / crypto.ChunkSize)
+	if endChunk >= totalChunks {
+		if totalChunks == 0 {
+			return io.NopCloser(bytes.NewReader([]byte{})), nil
+		}
+		endChunk = totalChunks - 1
+	}
+
+	encStart := int64(startChunk) * crypto.CipherChunkSize
+	encLength := int64(endChunk-startChunk+1) * crypto.CipherChunkSize
+
+	cipherRC, err := p.remote.DownloadRange(meta.RemoteName, encStart, encLength)
+	if err != nil {
+		return nil, err
+	}
+
+	pr, pw := io.Pipe()
+	go func() {
+		err := engine.DecryptStreamFrom(cipherRC, pw, meta.Salt, startChunk)
 		cipherRC.Close()
 		pw.CloseWithError(err)
 	}()

@@ -1,7 +1,7 @@
 package proxy
 
 import (
-	"bytes"
+	"clearvault/internal/crypto"
 	"clearvault/internal/metadata"
 	"context"
 	"fmt"
@@ -51,10 +51,9 @@ func (fs *FileSystem) OpenFile(ctx context.Context, name string, flag int, perm 
 	if flag&os.O_CREATE != 0 {
 		log.Printf("FS OpenFile: creating new file '%s'", name)
 		return &ProxyFile{
-			fs:     fs,
-			name:   name,
-			isNew:  true,
-			buffer: &bytes.Buffer{},
+			fs:    fs,
+			name:  name,
+			isNew: true,
 		}, nil
 	}
 
@@ -110,25 +109,37 @@ func (fs *FileSystem) Stat(ctx context.Context, name string) (os.FileInfo, error
 }
 
 type ProxyFile struct {
-	fs     *FileSystem
-	name   string
-	meta   *metadata.FileMeta
-	isDir  bool
-	isNew  bool
-	buffer *bytes.Buffer
+	fs    *FileSystem
+	name  string
+	meta  *metadata.FileMeta
+	isDir bool
+	isNew bool
+
+	// Upload fields
+	pipeWriter  *io.PipeWriter
+	uploadErr   chan error
+	written     bool
+	writtenSize int64
+
+	// Download fields
 	reader io.ReadCloser
 	offset int64
 }
 
 func (f *ProxyFile) Close() error {
-	if f.isNew && f.buffer != nil {
-		log.Printf("FS Close: uploading new file '%s' (buffer size: %d)", f.name, f.buffer.Len())
-		err := f.fs.p.UploadFile(f.name, f.buffer)
-		if err != nil {
-			log.Printf("FS Close: UploadFile failed for '%s': %v", f.name, err)
+	if f.isNew {
+		if !f.written {
+			// No data written: save placeholder
+			return f.fs.p.SavePlaceholder(f.name)
 		}
-		f.buffer = nil
-		return err
+
+		if f.pipeWriter != nil {
+			log.Printf("FS Close: finishing upload for '%s'", f.name)
+			f.pipeWriter.Close() // Close write end, reader gets EOF
+			err := <-f.uploadErr // Wait for upload to finish
+			return err
+		}
+		return nil
 	}
 	if f.reader != nil {
 		err := f.reader.Close()
@@ -147,16 +158,34 @@ func (f *ProxyFile) Read(p []byte) (n int, err error) {
 	}
 
 	if f.reader == nil {
-		f.reader, err = f.fs.p.DownloadFile(f.name)
+		// Calculate length needed to read rest of file (or until EOF)
+		length := int64(0)
+		if f.meta != nil {
+			length = f.meta.Size - f.offset
+		}
+
+		if length <= 0 && f.meta.Size > 0 {
+			return 0, io.EOF
+		}
+
+		f.reader, err = f.fs.p.DownloadRange(f.name, f.offset, length)
 		if err != nil {
 			return 0, err
 		}
-		// If offset > 0, we should skip bytes or use DownloadRange
-		// For now, let's just skip if offset is small, but ideally we use DownloadRange
-		if f.offset > 0 {
-			// This is inefficient, but okay for an initial implementation.
-			// Better: Close and re-open with DownloadRange in Seek.
-			io.CopyN(io.Discard, f.reader, f.offset)
+
+		// Discard bytes to align with f.offset
+		startChunk := f.offset / crypto.ChunkSize
+		chunkStart := int64(startChunk) * crypto.ChunkSize
+		skip := f.offset - chunkStart
+
+		if skip > 0 {
+			// We must discard 'skip' bytes from the stream
+			_, err = io.CopyN(io.Discard, f.reader, skip)
+			if err != nil {
+				f.reader.Close()
+				f.reader = nil
+				return 0, err
+			}
 		}
 	}
 
@@ -236,7 +265,7 @@ func (f *ProxyFile) Stat() (os.FileInfo, error) {
 	if f.isNew {
 		return &FileInfo{
 			name:    path.Base(f.name),
-			size:    int64(f.buffer.Len()),
+			size:    f.writtenSize,
 			isDir:   false,
 			modTime: time.Now(),
 		}, nil
@@ -257,7 +286,21 @@ func (f *ProxyFile) Write(p []byte) (n int, err error) {
 		return 0, os.ErrInvalid
 	}
 	if f.isNew {
-		n, err = f.buffer.Write(p)
+		if !f.written {
+			pr, pw := io.Pipe()
+			f.pipeWriter = pw
+			f.uploadErr = make(chan error, 1)
+			f.written = true
+
+			go func() {
+				// UploadFile closes pr when done reading
+				err := f.fs.p.UploadFile(f.name, pr)
+				f.uploadErr <- err
+			}()
+		}
+
+		n, err = f.pipeWriter.Write(p)
+		f.writtenSize += int64(n)
 		f.offset += int64(n)
 		return n, err
 	}

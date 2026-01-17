@@ -126,6 +126,42 @@ func (e *Engine) DecryptStream(r io.Reader, w io.Writer, baseNonce []byte) error
 	return nil
 }
 
+func (e *Engine) DecryptStreamFrom(r io.Reader, w io.Writer, baseNonce []byte, startChunkIndex uint64) error {
+	block, err := aes.NewCipher(e.key)
+	if err != nil {
+		return err
+	}
+	aesgcm, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+
+	buf := make([]byte, CipherChunkSize)
+	chunkIndex := startChunkIndex
+
+	for {
+		n, err := io.ReadFull(r, buf)
+		if n > 0 {
+			nonce := deriveNonce(baseNonce, chunkIndex)
+			plaintext, err := aesgcm.Open(nil, nonce, buf[:n], nil)
+			if err != nil {
+				return ErrDecryptFail
+			}
+			if _, err := w.Write(plaintext); err != nil {
+				return err
+			}
+			chunkIndex++
+		}
+		if err == io.EOF || err == io.ErrUnexpectedEOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // DecryptRange decrypts a specific byte range of a file.
 func (e *Engine) DecryptRange(r io.ReaderAt, w io.Writer, baseNonce []byte, start, length int64) error {
 	block, err := aes.NewCipher(e.key)

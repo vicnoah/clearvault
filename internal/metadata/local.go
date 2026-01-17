@@ -77,6 +77,12 @@ func (s *LocalStorage) Get(p string) (*FileMeta, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, err
 	}
+	
+	// Ensure IsDir is consistent with actual file system if it's a directory placeholder
+	// But in LocalStorage, directories are actual directories.
+	// Only file placeholders (json files) are returned here.
+	// Wait, for .pending, we might have saved IsDir=false.
+	
 	meta.Path = p
 	return &meta, nil
 }
