@@ -123,6 +123,34 @@ sudo mount -t davfs http://127.0.0.1:8080/dav/ /mnt/clearvault
 # Enter username and password
 ```
 
+### Offline Encrypted Export (Manual Cloud Upload)
+
+In some environments, WebDAV uploads for large files may be unstable. You can first encrypt a batch of files locally into a single output directory, then manually upload that directory to the cloud using a browser, client, or offline tools.
+
+1. Prepare configuration with a stable master key and metadata storage:
+   - `security.master_key` must be stable and identical to the one used by your online ClearVault service
+   - `storage.metadata_type` / `storage.metadata_path` decide where metadata will be written
+
+2. Run a one‑shot offline export command (it does not start the WebDAV server):
+
+```bash
+./clearvault -config config.yaml -in /path/to/plain-dir-or-file -out /path/to/export-dir
+```
+
+Parameter description:
+
+- `-in`: Local path to export (single file or a directory)
+- `-out`: Output directory for encrypted files; it will only contain ciphertext files with random names
+- Legacy parameters (still supported for compatibility):
+  - `-export-input` is equivalent to `-in` (when `-in` is not provided)
+  - `-export-output` is equivalent to `-out` (when `-out` is not provided)
+
+Notes:
+
+- After export, metadata for this batch of files is written under `storage.metadata_path`, including original paths and key info
+- Filenames in `-out` are random `remoteName` values; you can upload all files in this directory to any folder in your target WebDAV storage
+- As long as you later start ClearVault on the server with the same `config.yaml` (especially the same `master_key` and `metadata_path`), you can access these uploaded encrypted files via the WebDAV interface
+
 ## 🐳 Docker Deployment
 
 ### Using Docker Compose (Recommended)

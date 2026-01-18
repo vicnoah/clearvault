@@ -123,6 +123,34 @@ sudo mount -t davfs http://127.0.0.1:8080/dav/ /mnt/clearvault
 # 输入用户名和密码
 ```
 
+### 离线加密导出（手动上传云端）
+
+在某些环境下，WebDAV 大文件上传可能不稳定，你可以先在本地把一批文件加密导出到一个统一目录，再通过浏览器、客户端或离线工具手动上传到云端。
+
+1. 使用配置文件准备好主密钥和元数据存储：
+   - `security.master_key` 必须稳定且与线上服务一致
+   - `storage.metadata_type` / `storage.metadata_path` 决定元数据写入位置
+
+2. 运行一次性离线导出命令（不会启动 WebDAV 服务）：
+
+```bash
+./clearvault -config config.yaml -in /path/to/plain-dir-or-file -out /path/to/export-dir
+```
+
+参数说明：
+
+- `-in`：要导出的本地路径，可以是单个文件或目录
+- `-out`：加密后文件输出目录，目录中只包含随机文件名的密文文件
+- 兼容旧参数：
+  - `-export-input` 等价于 `-in`（当 `-in` 未提供时）
+  - `-export-output` 等价于 `-out`（当 `-out` 未提供时）
+
+注意：
+
+- 导出完成后，`storage.metadata_path` 下会写入这批文件的元数据，包含原始路径和密钥信息
+- `-out` 目录中的文件名是随机的 `remoteName`，可以整体上传到目标 WebDAV 存储中的任意目录
+- 只要之后在服务器端使用同一份 `config.yaml`（尤其是相同的 `master_key` 和 `metadata_path`）启动 ClearVault，即可通过 WebDAV 接口访问这些已上传的加密文件
+
 ## 🐳 Docker 部署
 
 ### 使用 Docker Compose（推荐）

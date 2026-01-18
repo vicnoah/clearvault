@@ -235,6 +235,98 @@ func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 	return err
 }
 
+func (p *Proxy) ExportLocal(inputPath, outputDir string) error {
+	absInput, err := filepath.Abs(inputPath)
+	if err != nil {
+		return err
+	}
+	info, err := os.Stat(absInput)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(outputDir, 0755); err != nil {
+		return err
+	}
+	root := absInput
+	if !info.IsDir() {
+		root = filepath.Dir(absInput)
+	}
+	log.Printf("Proxy: ExportLocal from '%s' (root '%s') to '%s'", absInput, root, outputDir)
+	err = filepath.Walk(absInput, func(current string, fi os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		rel, err := filepath.Rel(root, current)
+		if err != nil {
+			return err
+		}
+		if rel == "." {
+			return nil
+		}
+		metaPath := "/" + filepath.ToSlash(rel)
+		metaPath = p.normalizePath(metaPath)
+		if fi.IsDir() {
+			meta := &metadata.FileMeta{
+				Path:       metaPath,
+				RemoteName: p.generateRemoteName(),
+				IsDir:      true,
+				Size:       0,
+				FEK:        []byte{},
+				Salt:       []byte{},
+				UpdatedAt:  fi.ModTime(),
+			}
+			return p.meta.Save(meta)
+		}
+		fek, err := crypto.GenerateRandomBytes(32)
+		if err != nil {
+			return err
+		}
+		salt, err := crypto.GenerateRandomBytes(12)
+		if err != nil {
+			return err
+		}
+		encryptedFEK, err := p.encryptFEK(fek)
+		if err != nil {
+			return err
+		}
+		engine, err := crypto.NewEngine(fek)
+		if err != nil {
+			return err
+		}
+		remoteName := p.generateRemoteName()
+		outPath := filepath.Join(outputDir, remoteName)
+		inFile, err := os.Open(current)
+		if err != nil {
+			return err
+		}
+		outFile, err := os.Create(outPath)
+		if err != nil {
+			inFile.Close()
+			return err
+		}
+		err = engine.EncryptStream(inFile, outFile, salt)
+		closeErr := outFile.Close()
+		inFile.Close()
+		if err != nil {
+			return err
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+		meta := &metadata.FileMeta{
+			Path:       metaPath,
+			RemoteName: remoteName,
+			Size:       fi.Size(),
+			IsDir:      false,
+			FEK:        encryptedFEK,
+			Salt:       salt,
+			UpdatedAt:  fi.ModTime(),
+		}
+		return p.meta.Save(meta)
+	})
+	return err
+}
+
 type sizeWriter struct {
 	size *int64
 }
