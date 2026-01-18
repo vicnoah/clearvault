@@ -205,6 +205,13 @@ func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 			log.Printf("Proxy: Remote Upload failed for '%s': %v", pname, err)
 			return err
 		}
+	} else {
+		// Stream without size, just pass through
+		err = p.remote.Upload(remoteName, pr, -1)
+		if err != nil {
+			log.Printf("Proxy: Remote Upload failed for '%s': %v", pname, err)
+			return err
+		}
 	}
 
 	// Check encryption error
