@@ -2,7 +2,7 @@ version: '3.8'
 
 services:
   clearvault:
-    build: .
+    image: ghcr.io/vicnoah/clearvault:latest
     container_name: clearvault
     restart: unless-stopped
     ports:

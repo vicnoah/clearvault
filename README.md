@@ -13,6 +13,7 @@ ClearVault 是一个基于 WebDAV 协议的加密云存储代理服务，支持�
 - 💾 **灵活的元数据存储**：支持本地文件系统或 SQLite 数据库存储元数据
 - 🔄 **完整的 WebDAV 支持**：支持文件上传、下载、删除、重命名、目录操作等
 - 🪟 **Windows 优化**：针对 Windows 文件锁定和 RaiDrive 客户端进行了特殊优化
+- 📤 **离线加密导出**：支持本地批量加密导出后手动上传云端，规避不稳定 WebDAV 上传
 
 ## 📋 系统要求
 
@@ -26,7 +27,7 @@ ClearVault 是一个基于 WebDAV 协议的加密云存储代理服务，支持�
 
 1. **克隆仓库**
 ```bash
-git clone https://github.com/yourusername/clearvault.git
+git clone https://github.com/vicnoah/clearvault.git
 cd clearvault
 ```
 
@@ -41,7 +42,7 @@ go build -o clearvault ./cmd/clearvault
 ```yaml
 server:
   # 监听地址和端口
-  listen: "127.0.0.1:8080"
+  listen: "0.0.0.0:8080"
   # WebDAV 基础 URL（默认为 /）
   base_url: "/dav"
   
@@ -177,16 +178,16 @@ docker-compose down
 ### 使用 Docker 命令
 
 ```bash
-# 构建镜像
-docker build -t clearvault:latest .
-
-# 运行容器
+# 运行已发布镜像（推荐）
 docker run -d \
   --name clearvault \
   -p 8080:8080 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/storage:/app/storage \
-  clearvault:latest
+  ghcr.io/vicnoah/clearvault:latest
+
+# 如需本地构建镜像
+docker build -t clearvault:latest .
 ```
 
 ### Docker 环境变量配置
@@ -200,7 +201,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/storage:/app/storage \
-  clearvault:latest
+  ghcr.io/vicnoah/clearvault:latest
 
 # 方案 B：完全使用环境变量启动（无需配置文件）
 # 生成随机密钥的命令：openssl rand -base64 32
@@ -216,7 +217,7 @@ docker run -d \
   -e REMOTE_PASS="pass" \
   -e STORAGE_METADATA_TYPE="local" \
   -v $(pwd)/storage:/app/storage \
-  clearvault:latest
+  ghcr.io/vicnoah/clearvault:latest
 ```
 
 支持的环境变量列表（可覆盖 config.yaml 或直接作为配置使用）：

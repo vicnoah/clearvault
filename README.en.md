@@ -13,6 +13,7 @@ ClearVault is an encrypted cloud storage proxy service based on the WebDAV proto
 - 💾 **Flexible Metadata Storage**: Supports local filesystem or SQLite database for metadata storage
 - 🔄 **Full WebDAV Support**: Supports file upload, download, delete, rename, directory operations, etc.
 - 🪟 **Windows Optimization**: Special optimizations for Windows file locking and RaiDrive client
+- 📤 **Offline Encrypted Export**: Encrypt files locally and manually upload to cloud when WebDAV uploads are unstable
 
 ## 📋 System Requirements
 
@@ -26,7 +27,7 @@ ClearVault is an encrypted cloud storage proxy service based on the WebDAV proto
 
 1. **Clone Repository**
 ```bash
-git clone https://github.com/yourusername/clearvault.git
+git clone https://github.com/vicnoah/clearvault.git
 cd clearvault
 ```
 
@@ -41,7 +42,7 @@ Create `config.yaml`:
 ```yaml
 server:
   # Listen address and port
-  listen: "127.0.0.1:8080"
+  listen: "0.0.0.0:8080"
   # WebDAV base URL (default is /)
   base_url: "/dav"
   
@@ -177,16 +178,16 @@ docker-compose down
 ### Using Docker Commands
 
 ```bash
-# Build image
-docker build -t clearvault:latest .
-
-# Run container
+# Run published image (recommended)
 docker run -d \
   --name clearvault \
   -p 8080:8080 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/storage:/app/storage \
-  clearvault:latest
+  ghcr.io/vicnoah/clearvault:latest
+
+# Build image locally if needed
+docker build -t clearvault:latest .
 ```
 
 ### Docker Environment Variable Configuration
@@ -200,7 +201,7 @@ docker run -d \
   -p 8080:8080 \
   -v $(pwd)/config.yaml:/app/config.yaml \
   -v $(pwd)/storage:/app/storage \
-  clearvault:latest
+  ghcr.io/vicnoah/clearvault:latest
 
 # Option B: Start entirely with environment variables (no config file needed)
 # Command to generate a random key: openssl rand -base64 32
@@ -216,7 +217,7 @@ docker run -d \
   -e REMOTE_PASS="pass" \
   -e STORAGE_METADATA_TYPE="local" \
   -v $(pwd)/storage:/app/storage \
-  clearvault:latest
+  ghcr.io/vicnoah/clearvault:latest
 ```
 
 Supported Environment Variables (can override config.yaml or be used as primary configuration):
