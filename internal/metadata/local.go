@@ -248,9 +248,11 @@ func (s *LocalStorage) Rename(oldPath, newPath string) error {
 
 	// Determine which source path exists (with or without .json)
 	var oldTarget, newTarget string
+	isFile := false
 	if _, err := os.Stat(oldLocal); err == nil {
 		oldTarget = oldLocal
 		newTarget = newLocal
+		isFile = true
 	} else if _, err := os.Stat(oldLocalWithoutJson); err == nil {
 		oldTarget = oldLocalWithoutJson
 		newTarget = newLocalWithoutJson
@@ -267,6 +269,10 @@ func (s *LocalStorage) Rename(oldPath, newPath string) error {
 		return os.Rename(oldTarget, newTarget)
 	})
 	if err == nil {
+		// If it's a file, update the Name field in the metadata
+		if isFile {
+			return s.updateMetadataName(newTarget, newPath)
+		}
 		return nil
 	}
 
@@ -278,10 +284,40 @@ func (s *LocalStorage) Rename(oldPath, newPath string) error {
 		return err
 	}
 
+	// If it's a file, update the Name field in the metadata
+	if isFile {
+		if err := s.updateMetadataName(newTarget, newPath); err != nil {
+			log.Printf("LocalStorage: Failed to update metadata name: %v", err)
+		}
+	}
+
 	if err := s.RemoveAll(oldPath); err != nil {
 		log.Printf("LocalStorage: Fallback Delete failed: %v", err)
 	}
 	return nil
+}
+
+// updateMetadataName updates the Name field in the metadata file to match the new path
+func (s *LocalStorage) updateMetadataName(metaPath, newPath string) error {
+	data, err := os.ReadFile(metaPath)
+	if err != nil {
+		return err
+	}
+
+	var meta FileMeta
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return err
+	}
+
+	// Update the Name field to match the new path
+	meta.Name = path.Base(newPath)
+
+	newData, err := json.MarshalIndent(meta, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(metaPath, newData, 0644)
 }
 
 func copyFile(src, dst string) error {
