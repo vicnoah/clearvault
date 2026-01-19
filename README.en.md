@@ -269,6 +269,97 @@ Supported Environment Variables (can override config.yaml or be used as primary 
    - Do not expose service directly to the internet
    - Use VPN or SSH tunnel for access
 
+## 🛠️ Simple Share Feature
+
+ClearVault supports sharing metadata through password-encrypted tar packages, allowing direct file transfer. simple sharing offers the following core advantages:
+
+### 🌟 Core Advantage: Separation of Metadata and Encrypted Data
+
+**Instant Sharing**: Encrypted files in the cloud can utilize official sharing features of various cloud storage services (such as Aliyun Drive, Baidu Netdisk, Dropbox, etc.), typically achieving instant sharing without waiting for WebDAV uploads.
+
+**No WebDAV Server Required**: Directly generate encrypted metadata tar packages without relying on remote WebDAV services, avoiding network instability issues.
+
+**Maximize Cloud Storage Features**: Leverage cloud storage's high-speed uploads, instant transfer, sharing links, and other features to significantly improve sharing efficiency.
+
+**Separate Design**: Metadata sharing packages and encrypted files are completely separated. Metadata can be transmitted offline, while encrypted files are shared through cloud storage, without interfering with each other.
+
+**Absolute Security**: Multi-layer encryption using PBKDF2 + AES-256-GCM + RSA-2048 ensures data security.
+
+**Zero-Configuration Sharing**: Generated metadata tar packages can be shared across any platform that supports file transfer (email, cloud storage, instant messaging, etc.).
+
+**Fully Offline**: Complete encrypted sharing without internet connection, perfect for sensitive data transmission.
+
+**Use-and-Discard**: Each share generates an independent temporary key pair, avoiding key reuse risks.
+
+### Export Share Package
+
+```bash
+# Export with specified password
+./clearvault export \
+    --paths "/documents/report.pdf" \
+    --output /tmp/export \
+    --share-key "my-secret-password"
+
+# Auto-generate random password (16 characters)
+./clearvault export \
+    --paths "/documents/report.pdf" \
+    --output /tmp/export
+```
+
+### Import Share Package
+
+```bash
+./clearvault import \
+    --input /tmp/share_abc123.tar \
+    --share-key "my-secret-password"
+```
+
+### Share Package Structure
+
+```
+share_abc123.tar
+├── manifest.json          # Manifest file
+├── metadata/              # Encrypted metadata files
+│   └── timestamp_random_hash_filename.enc
+└── private_key.enc        # Encrypted temporary private key
+```
+
+### Security Features
+
+- **PBKDF2**: 100,000 key derivation iterations to prevent brute force attacks
+- **AES-256-GCM**: Metadata encryption with authenticated encryption
+- **RSA-2048**: Temporary key encryption with asymmetric protection
+- **Temporary Keys**: New key pair generated for each share to avoid key reuse
+- **Random Passwords**: Auto-generated 16-character random passwords for enhanced security
+- **Random Filenames**: Timestamp + random + path hash ensures absolute collision-free
+
+### Use Cases
+
+1. **Instant Cloud Sharing**: Utilize cloud storage official sharing features for instant encrypted file sharing
+2. **Sensitive Data Sharing**: Transmit sensitive files over insecure networks
+3. **Offline Work**: Complete data sharing without network connection
+4. **Cross-Platform Sharing**: Share encrypted data between Windows, Linux, and macOS
+5. **Backup & Archive**: Backup encrypted metadata to local or other storage
+6. **Temporary Sharing**: Quickly generate encrypted packages for temporary sharing without WebDAV setup
+
+### Sharing Workflow Example
+
+```
+1. Export metadata sharing package locally
+   ↓
+2. Upload encrypted files to cloud (using cloud instant transfer)
+   ↓
+3. Share encrypted file link via cloud platform
+   ↓
+4. Send metadata sharing package through other channels
+   ↓
+5. Recipient imports metadata sharing package
+   ↓
+6. Recipient downloads encrypted files via share link
+   ↓
+7. Recipient decrypts and accesses original files
+```
+
 ## 🛠️ Advanced Features
 
 ### Reverse Proxy Configuration (Nginx)

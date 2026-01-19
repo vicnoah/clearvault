@@ -11,6 +11,7 @@
 - [文件操作流程](#文件操作流程)
 - [RaiDrive 兼容性](#raidrive-兼容性)
 - [Windows 文件锁定处理](#windows-文件锁定处理)
+- [简单分享功能](#简单分享功能)
 - [性能优化](#性能优化)
 
 ## 架构概览
@@ -626,6 +627,340 @@ func (p *WorkerPool) Do(fn func()) {
 - 自动检测数据篡改
 - 解密失败时拒绝返回数据
 
+## 简单分享功能
+
+### 概述
+
+ClearVault 支持通过密码加密的 tar 包分享元数据，无需 WebDAV 协议，可直接通过文件传输。该功能基于密钥模式实现，使用用户提供的密码加密临时生成的 RSA 密钥对。
+
+### 安全模型
+
+#### 加密流程
+
+```
+用户密码
+    ↓ PBKDF2 (100,000 次迭代)
+派生密钥 (32字节)
+    ↓ AES-GCM
+加密的临时私钥
+    ↓
+临时 RSA 私钥
+    ↓ RSA-OAEP
+AES 密钥
+    ↓ AES-GCM
+元数据文件
+```
+
+#### 安全特性
+
+- **PBKDF2**：100,000 次密钥派生迭代，防止暴力破解
+- **AES-256-GCM**：元数据加密，提供认证加密
+- **RSA-2048**：临时密钥加密，非对称加密保护
+- **临时密钥**：每次分享生成新的密钥对，避免密钥复用
+- **随机密码**：可自动生成 16 位随机密码，提高安全性
+
+### 核心组件
+
+#### 密钥管理器 (internal/key/manager.go)
+
+负责临时 RSA 密钥对的生成和序列化。
+
+```go
+type KeyManager struct {}
+
+func NewKeyManager() (*KeyManager, error)
+
+// 生成临时 RSA 密钥对
+func (km *KeyManager) GenerateTempKeyPair(bits int) (*rsa.PrivateKey, *rsa.PublicKey, error)
+
+// 序列化私钥为 PEM 格式
+func (km *KeyManager) SerializePrivateKey(privKey *rsa.PrivateKey) ([]byte, error)
+
+// 从 PEM 格式反序列化私钥
+func (km *KeyManager) DeserializePrivateKey(pemData []byte) (*rsa.PrivateKey, error)
+```
+
+#### 非对称加密引擎 (internal/crypto/asymmetric.go)
+
+负责 RSA-OAEP 加密和解密。
+
+```go
+type AsymmetricEngine struct {
+    pubKey  *rsa.PublicKey
+    privKey *rsa.PrivateKey
+}
+
+func NewAsymmetricEngine(pubKey *rsa.PublicKey, privKey *rsa.PrivateKey) *AsymmetricEngine
+
+// RSA-OAEP 加密
+func (ae *AsymmetricEngine) EncryptKey(key []byte) ([]byte, error)
+
+// RSA-OAEP 解密
+func (ae *AsymmetricEngine) DecryptKey(encryptedKey []byte) ([]byte, error)
+```
+
+#### Tar 打包工具 (internal/proxy/tar_util.go)
+
+负责创建和提取 tar 包。
+
+```go
+// 创建 tar 包（密钥模式）
+func (p *Proxy) CreateTarPackage(
+    paths []string,
+    outputDir string,
+    tempPrivKey *rsa.PrivateKey,
+    tempPubKey *rsa.PublicKey,
+    aesKey []byte,
+) (string, error)
+
+// 提取 tar 包
+func (p *Proxy) ExtractTarPackage(
+    tarPath string,
+    outputDir string,
+    privateKey *rsa.PrivateKey,
+) (*TarPackage, error)
+
+// 生成随机 ID（时间戳 + 随机数 + 路径哈希 + 文件名哈希）
+func generateRandomID(virtualPath string) string
+```
+
+#### 简单分享实现 (internal/proxy/proxy_asymmetric.go)
+
+负责创建和接收分享包。
+
+```go
+// 创建分享包
+func (p *Proxy) CreateSharePackage(
+    paths []string,
+    outputDir string,
+    shareKey string,
+) (string, error)
+
+// 接收分享包
+func (p *Proxy) ReceiveSharePackage(
+    tarPath string,
+    outputDir string,
+    shareKey string,
+) (*TarPackage, error)
+```
+
+### 文件名生成算法
+
+#### 算法设计
+
+```go
+func generateRandomID(virtualPath string) string {
+    // 时间戳（纳秒）
+    timestamp := time.Now().UnixNano()
+
+    // 随机数（8字节）
+    randomBytes := make([]byte, 8)
+    rand.Read(randomBytes)
+
+    // 解析路径和文件名
+    dir := filepath.Dir(virtualPath)
+    name := filepath.Base(virtualPath)
+
+    // 组合路径 + 文件名作为哈希输入
+    hashInput := dir + "/" + name
+    hash := sha256.Sum256([]byte(hashInput))
+    nameHash := hex.EncodeToString(hash[:8])
+
+    // 组合：时间戳_随机数_路径文件名哈希
+    return fmt.Sprintf("%d_%s_%s",
+        timestamp,
+        hex.EncodeToString(randomBytes),
+        nameHash)
+}
+```
+
+#### 文件名格式
+
+**格式**：`时间戳_随机数_路径文件名哈希.enc`
+
+**示例**：`1768852296770834969_253a47900c42af81_947a215fa18d419b.enc`
+
+#### 组成部分
+
+1. **时间戳**（纳秒）：约 19 位数字
+   - 保证同一纳秒内不会生成两个文件
+   - 便于追踪文件生成时间
+
+2. **随机数**（8字节）：16 位十六进制字符
+   - 提供额外的唯一性保证
+   - 防止时间戳冲突
+
+3. **路径文件名哈希**（8字节）：16 位十六进制字符
+   - SHA-256 哈希的前 8 字节
+   - 区分不同目录下的同名文件
+   - 区分同一目录下的不同文件
+
+#### 碰撞概率分析
+
+- **时间戳**：纳秒级精度，同一纳秒内生成两个文件的概率极低
+- **随机数**：8字节 = 64位随机数，碰撞概率为 2^-64
+- **路径文件名哈希**：SHA-256 哈希，碰撞概率极低
+- **综合**：理论碰撞概率接近于 0
+
+### 使用流程
+
+#### 导出分享包
+
+```bash
+# 1. 指定密码导出
+./clearvault export \
+    --paths "/documents/report.pdf" \
+    --output /tmp/export \
+    --share-key "my-secret-password"
+
+# 2. 自动生成随机密码（16位）
+./clearvault export \
+    --paths "/documents/report.pdf" \
+    --output /tmp/export
+```
+
+**内部流程**：
+
+1. 生成临时 RSA 密钥对（2048位）
+2. 使用 PBKDF2 派生 AES 密钥（100,000 次迭代）
+3. 使用 AES-GCM 加密临时私钥
+4. 读取元数据文件
+5. 使用 AES 密钥加密元数据
+6. 生成随机文件名
+7. 创建 tar 包，包含：
+   - `manifest.json`：清单文件
+   - `metadata/`：加密的元数据文件
+   - `private_key.enc`：加密的临时私钥
+8. 返回 tar 包路径
+
+#### 导入分享包
+
+```bash
+./clearvault import \
+    --input /tmp/share_abc123.tar \
+    --share-key "my-secret-password"
+```
+
+**内部流程**：
+
+1. 打开 tar 文件
+2. 读取清单文件
+3. 使用 PBKDF2 派生 AES 密钥（100,000 次迭代）
+4. 使用 AES-GCM 解密临时私钥
+5. 使用临时私钥解密 AES 密钥
+6. 遍历 metadata/ 目录下的所有 .enc 文件
+7. 使用 AES 密钥解密元数据
+8. 使用主密钥重新加密 FEK（文件加密密钥）
+9. 保存元数据到本地存储
+
+### 安全考虑
+
+#### 密钥管理
+
+1. **临时密钥**：每次分享生成新的密钥对，避免密钥复用
+2. **密码强度**：建议使用 16 位以上随机密码
+3. **密钥派生**：使用 PBKDF2 进行密钥派生，增加暴力破解难度
+
+#### 加密强度
+
+1. **AES-256-GCM**：提供认证加密，防止篡改
+2. **RSA-2048**：非对称加密保护临时私钥
+3. **SHA-256**：哈希算法保证文件名唯一性
+
+#### 潜在风险
+
+1. **密码泄露**：如果密码泄露，攻击者可以解密分享包
+   - **缓解措施**：使用强密码，定期更换
+
+2. **临时私钥泄露**：如果临时私钥泄露，攻击者可以解密元数据
+   - **缓解措施**：临时私钥使用 AES-GCM 加密，密码保护
+
+3. **文件名碰撞**：理论上不可能发生
+   - **缓解措施**：时间戳 + 随机数 + 路径哈希保证唯一性
+
+### 性能分析
+
+#### 时间复杂度
+
+- **PBKDF2**：O(100,000) 次迭代
+- **AES-GCM**：O(n)，n 为数据大小
+- **RSA-OAEP**：O(1)，固定大小密钥
+- **SHA-256**：O(1)，固定大小输入
+
+#### 空间复杂度
+
+- **临时密钥对**：约 2KB（2048位 RSA）
+- **AES 密钥**：32 字节
+- **元数据文件**：取决于文件数量和大小
+
+#### 性能影响
+
+- **时间戳获取**：纳秒级时间戳，性能影响可忽略
+- **哈希计算**：SHA-256 哈希，对单个文件影响极小
+- **字符串拼接**：Go 的字符串拼接性能良好
+- **加密操作**：AES-GCM 和 RSA-OAEP 性能良好
+
+### 扩展性
+
+#### 支持更多加密算法
+
+当前使用 AES-256-GCM，可以扩展支持：
+- AES-256-CTR
+- ChaCha20-Poly1305
+
+#### 支持更多密钥派生算法
+
+当前使用 PBKDF2，可以扩展支持：
+- Argon2
+- scrypt
+
+#### 支持更多密钥长度
+
+当前使用 RSA-2048，可以扩展支持：
+- RSA-3072
+- RSA-4096
+
+### 测试验证
+
+#### 单元测试
+
+```bash
+go test ./internal/proxy/... -v
+```
+
+**测试用例**：
+
+1. `TestCreateTarPackage`：测试创建 tar 包
+2. `TestExtractTarPackage`：测试提取 tar 包
+3. `TestGenerateRandomID`：测试随机 ID 生成
+4. `TestEncryptDecryptPrivateKey`：测试私钥加密/解密
+5. `TestDeriveKeyFromPassword`：测试密钥派生
+
+#### 集成测试
+
+```bash
+# 1. 导出
+./clearvault export \
+    --paths "/test" \
+    --output /tmp/export \
+    --share-key "test-password"
+
+# 2. 导入
+./clearvault import \
+    --input /tmp/export/share_*.tar \
+    --share-key "test-password"
+```
+
+#### 性能测试
+
+```bash
+# 测试导出 1000 个元数据文件的时间
+time ./clearvault export \
+    --paths "/large-directory" \
+    --output /tmp/export \
+    --share-key "test-password"
+```
+
 ## 未来改进方向
 
 1. **分块加密**：支持超大文件的分块加密和并行上传
@@ -634,6 +969,9 @@ func (p *WorkerPool) Do(fn func()) {
 4. **多用户支持**：每个用户独立的加密密钥
 5. **版本控制**：文件历史版本管理
 6. **压缩**：加密前压缩文件以节省空间
+7. **分享包格式优化**：支持压缩分享包，减少文件大小
+8. **多文件分享**：支持批量选择多个文件进行分享
+9. **分享链接**：生成可分享的链接（配合云存储）
 
 ## 参考资料
 
