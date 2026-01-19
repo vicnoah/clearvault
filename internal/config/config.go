@@ -40,8 +40,7 @@ type SecurityConfig struct {
 }
 
 type StorageConfig struct {
-	MetadataType string `yaml:"metadata_type"` // "sqlite" or "local"
-	MetadataPath string `yaml:"metadata_path"` // db file for sqlite, dir for local
+	MetadataPath string `yaml:"metadata_path"` // JSON metadata directory
 	CacheDir     string `yaml:"cache_dir"`
 }
 
@@ -91,9 +90,6 @@ func processEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("SERVER_AUTH_PASS"); v != "" {
 		cfg.Server.Auth.Pass = v
-	}
-	if v := os.Getenv("STORAGE_METADATA_TYPE"); v != "" {
-		cfg.Storage.MetadataType = v
 	}
 	if v := os.Getenv("STORAGE_METADATA_PATH"); v != "" {
 		cfg.Storage.MetadataPath = v

@@ -41,7 +41,19 @@ func NewLocalStorage(baseDir string) (*LocalStorage, error) {
 	return &LocalStorage{baseDir: baseDir}, nil
 }
 
+// getLocalPath returns the local file path for a metadata file (with .json extension for files)
 func (s *LocalStorage) getLocalPath(p string) string {
+	safePath := path.Clean("/" + filepath.ToSlash(p))
+	if safePath == "/" || safePath == "." {
+		return s.baseDir
+	}
+	rel := strings.TrimPrefix(safePath, "/")
+	// Add .json extension for file metadata
+	return filepath.Join(s.baseDir, rel) + ".json"
+}
+
+// getLocalPathWithoutJson returns the path without .json extension (for directories)
+func (s *LocalStorage) getLocalPathWithoutJson(p string) string {
 	safePath := path.Clean("/" + filepath.ToSlash(p))
 	if safePath == "/" || safePath == "." {
 		return s.baseDir
@@ -51,8 +63,20 @@ func (s *LocalStorage) getLocalPath(p string) string {
 }
 
 func (s *LocalStorage) Get(p string) (*FileMeta, error) {
+	// Check if it's a directory first (directories don't have .json extension)
+	dirLocal := s.getLocalPathWithoutJson(p)
+	stat, err := os.Stat(dirLocal)
+	if err == nil && stat.IsDir() {
+		return &FileMeta{
+			Name:      path.Base(p),
+			IsDir:     true,
+			UpdatedAt: stat.ModTime(),
+		}, nil
+	}
+
+	// Check for file metadata with .json extension
 	local := s.getLocalPath(p)
-	stat, err := os.Stat(local)
+	stat, err = os.Stat(local)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil
@@ -62,7 +86,7 @@ func (s *LocalStorage) Get(p string) (*FileMeta, error) {
 
 	if stat.IsDir() {
 		return &FileMeta{
-			Path:      p,
+			Name:      path.Base(p),
 			IsDir:     true,
 			UpdatedAt: stat.ModTime(),
 		}, nil
@@ -77,13 +101,8 @@ func (s *LocalStorage) Get(p string) (*FileMeta, error) {
 	if err := json.Unmarshal(data, &meta); err != nil {
 		return nil, err
 	}
-	
-	// Ensure IsDir is consistent with actual file system if it's a directory placeholder
-	// But in LocalStorage, directories are actual directories.
-	// Only file placeholders (json files) are returned here.
-	// Wait, for .pending, we might have saved IsDir=false.
-	
-	meta.Path = p
+
+	// Name is already stored in the JSON, no need to set it
 	return &meta, nil
 }
 
@@ -101,8 +120,6 @@ func (s *LocalStorage) GetByRemoteName(remoteName string) (*FileMeta, error) {
 		if err := json.Unmarshal(data, &meta); err == nil {
 			if meta.RemoteName == remoteName {
 				found = &meta
-				rel, _ := filepath.Rel(s.baseDir, p)
-				found.Path = path.Clean("/" + filepath.ToSlash(rel))
 				return filepath.SkipAll
 			}
 		}
@@ -111,12 +128,15 @@ func (s *LocalStorage) GetByRemoteName(remoteName string) (*FileMeta, error) {
 	return found, err
 }
 
-func (s *LocalStorage) Save(meta *FileMeta) error {
-	local := s.getLocalPath(meta.Path)
+func (s *LocalStorage) Save(meta *FileMeta, p string) error {
 	if meta.IsDir {
+		// For directories, use path without .json extension
+		local := s.getLocalPathWithoutJson(p)
 		return os.MkdirAll(local, 0755)
 	}
 
+	// For files, use path with .json extension
+	local := s.getLocalPath(p)
 	if err := os.MkdirAll(filepath.Dir(local), 0755); err != nil {
 		return err
 	}
@@ -131,10 +151,21 @@ func (s *LocalStorage) Save(meta *FileMeta) error {
 
 func (s *LocalStorage) RemoveAll(p string) error {
 	local := s.getLocalPath(p)
-	log.Printf("LocalStorage: RemoveAll '%s' -> '%s'", p, local)
-	if local == s.baseDir {
+	localWithoutJson := s.getLocalPathWithoutJson(p)
+	log.Printf("LocalStorage: RemoveAll '%s' -> '%s' or '%s'", p, local, localWithoutJson)
+
+	// Try to remove both the file with .json and the directory without .json
+	// First check which one exists
+	var targetPath string
+	if _, err := os.Stat(local); err == nil {
+		targetPath = local
+	} else if _, err := os.Stat(localWithoutJson); err == nil {
+		targetPath = localWithoutJson
+	}
+
+	if targetPath == "" || targetPath == s.baseDir {
 		// Don't delete baseDir itself, just children
-		items, err := os.ReadDir(local)
+		items, err := os.ReadDir(s.baseDir)
 		if err != nil {
 			log.Printf("LocalStorage: ReadDir failed for baseDir: %v", err)
 			return err
@@ -143,7 +174,7 @@ func (s *LocalStorage) RemoveAll(p string) error {
 			if item.Name() == ".clearvault" {
 				continue
 			}
-			childPath := filepath.Join(local, item.Name())
+			childPath := filepath.Join(s.baseDir, item.Name())
 			if err := retryOperation(func() error {
 				return os.RemoveAll(childPath)
 			}); err != nil {
@@ -152,17 +183,18 @@ func (s *LocalStorage) RemoveAll(p string) error {
 		}
 		return nil
 	}
+
 	err := retryOperation(func() error {
-		return os.RemoveAll(local)
+		return os.RemoveAll(targetPath)
 	})
 	if err != nil {
-		log.Printf("LocalStorage: RemoveAll '%s' retry failed: %v", local, err)
+		log.Printf("LocalStorage: RemoveAll '%s' retry failed: %v", targetPath, err)
 	}
 	return err
 }
 
 func (s *LocalStorage) ReadDir(p string) ([]FileMeta, error) {
-	local := s.getLocalPath(p)
+	local := s.getLocalPathWithoutJson(p)
 	entries, err := os.ReadDir(local)
 	if err != nil {
 		return nil, err
@@ -173,14 +205,34 @@ func (s *LocalStorage) ReadDir(p string) ([]FileMeta, error) {
 		if entry.Name() == ".clearvault" {
 			continue
 		}
-		childPath := path.Join(p, entry.Name())
-		meta, err := s.Get(childPath)
-		if err != nil {
-			log.Printf("LocalStorage: ReadDir Get child '%s' error: %v", childPath, err)
-			continue
-		}
-		if meta != nil {
-			results = append(results, *meta)
+
+		// Remove .json extension from filename to get the virtual path
+		filename := entry.Name()
+		childName := strings.TrimSuffix(filename, ".json")
+
+		// If filename didn't have .json extension, it's a directory
+		if childName == filename {
+			// This is a directory
+			childPath := path.Join(p, childName)
+			meta, err := s.Get(childPath)
+			if err != nil {
+				log.Printf("LocalStorage: ReadDir Get child '%s' error: %v", childPath, err)
+				continue
+			}
+			if meta != nil {
+				results = append(results, *meta)
+			}
+		} else {
+			// This is a file with .json extension
+			childPath := path.Join(p, childName)
+			meta, err := s.Get(childPath)
+			if err != nil {
+				log.Printf("LocalStorage: ReadDir Get child '%s' error: %v", childPath, err)
+				continue
+			}
+			if meta != nil {
+				results = append(results, *meta)
+			}
 		}
 	}
 	return results, nil
@@ -189,16 +241,30 @@ func (s *LocalStorage) ReadDir(p string) ([]FileMeta, error) {
 func (s *LocalStorage) Rename(oldPath, newPath string) error {
 	oldLocal := s.getLocalPath(oldPath)
 	newLocal := s.getLocalPath(newPath)
+	oldLocalWithoutJson := s.getLocalPathWithoutJson(oldPath)
+	newLocalWithoutJson := s.getLocalPathWithoutJson(newPath)
 
 	log.Printf("LocalStorage: Rename '%s' -> '%s'", oldLocal, newLocal)
 
-	if err := os.MkdirAll(filepath.Dir(newLocal), 0755); err != nil {
+	// Determine which source path exists (with or without .json)
+	var oldTarget, newTarget string
+	if _, err := os.Stat(oldLocal); err == nil {
+		oldTarget = oldLocal
+		newTarget = newLocal
+	} else if _, err := os.Stat(oldLocalWithoutJson); err == nil {
+		oldTarget = oldLocalWithoutJson
+		newTarget = newLocalWithoutJson
+	} else {
+		return fmt.Errorf("source path not found: %s", oldPath)
+	}
+
+	if err := os.MkdirAll(filepath.Dir(newTarget), 0755); err != nil {
 		log.Printf("LocalStorage: MkdirAll failed for Rename: %v", err)
 		return err
 	}
 
 	err := retryOperation(func() error {
-		return os.Rename(oldLocal, newLocal)
+		return os.Rename(oldTarget, newTarget)
 	})
 	if err == nil {
 		return nil
@@ -207,7 +273,7 @@ func (s *LocalStorage) Rename(oldPath, newPath string) error {
 	log.Printf("LocalStorage: Rename failed, attempting fallback Copy+Delete: %v", err)
 
 	// Fallback: Recursive Copy then Delete
-	if err := copyDir(oldLocal, newLocal); err != nil {
+	if err := copyDir(oldTarget, newTarget); err != nil {
 		log.Printf("LocalStorage: Fallback Copy failed: %v", err)
 		return err
 	}

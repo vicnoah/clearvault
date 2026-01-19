@@ -22,14 +22,8 @@ security:
 
 # 存储配置
 storage:
-  # 元数据存储类型: local (文件系统) 或 sqlite (数据库)
-  metadata_type: "local"
-  
-  # Local 类型配置: 元数据存储路径
+  # 元数据存储路径（使用 JSON 文件格式）
   metadata_path: "storage/metadata"
-  
-  # SQLite 类型配置（type 为 sqlite 时使用）
-  # db_path: "storage/metadata.db"
 
   # 缓存目录
   cache_dir: "storage/cache"

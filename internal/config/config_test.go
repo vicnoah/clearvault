@@ -21,7 +21,6 @@ server:
 security:
   master_key: "original-master-key-original-master-key"
 storage:
-  metadata_type: "local"
   metadata_path: "storage/metadata"
 remote:
   url: "http://original.com"
@@ -36,7 +35,6 @@ remote:
 	t.Setenv("SERVER_LISTEN", "0.0.0.0:9090")
 	t.Setenv("SERVER_BASE_URL", "/env-override")
 	t.Setenv("SERVER_AUTH_USER", "env-admin")
-	t.Setenv("STORAGE_METADATA_TYPE", "sqlite")
 	t.Setenv("REMOTE_URL", "http://env-override.com")
 
 	// Load config
@@ -54,9 +52,6 @@ remote:
 	}
 	if cfg.Server.Auth.User != "env-admin" {
 		t.Errorf("Expected Server.Auth.User to be 'env-admin', got '%s'", cfg.Server.Auth.User)
-	}
-	if cfg.Storage.MetadataType != "sqlite" {
-		t.Errorf("Expected Storage.MetadataType to be 'sqlite', got '%s'", cfg.Storage.MetadataType)
 	}
 	if cfg.Remote.URL != "http://env-override.com" {
 		t.Errorf("Expected Remote.URL to be 'http://env-override.com', got '%s'", cfg.Remote.URL)

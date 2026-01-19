@@ -135,7 +135,7 @@ func (p *Proxy) SavePlaceholder(pname string) error {
 	}
 
 	meta := &metadata.FileMeta{
-		Path:       pname,
+		Name:       path.Base(pname),
 		RemoteName: ".pending",
 		Size:       0,
 		IsDir:      false,
@@ -149,7 +149,7 @@ func (p *Proxy) SavePlaceholder(pname string) error {
 	// If it exists and is NOT .pending, we probably shouldn't overwrite it with .pending unless we are sure.
 	// But standard WebDAV PUT overwrites. So yes, we should overwrite.
 
-	return p.meta.Save(meta)
+	return p.meta.Save(meta, pname)
 }
 
 func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
@@ -229,7 +229,7 @@ func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 	// Not necessarily, if someone calls UploadFile directly. But via FS, yes.
 
 	meta := &metadata.FileMeta{
-		Path:       pname,
+		Name:       path.Base(pname),
 		RemoteName: remoteName,
 		Size:       cr.n,
 		IsDir:      false,
@@ -237,7 +237,7 @@ func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 		Salt:       salt,
 		UpdatedAt:  time.Now(),
 	}
-	err = p.meta.Save(meta)
+	err = p.meta.Save(meta, pname)
 	log.Printf("Proxy: UploadFile finished for '%s' (size: %d, err: %v)", pname, cr.n, err)
 	return err
 }
@@ -274,7 +274,7 @@ func (p *Proxy) ExportLocal(inputPath, outputDir string) error {
 		metaPath = p.normalizePath(metaPath)
 		if fi.IsDir() {
 			meta := &metadata.FileMeta{
-				Path:       metaPath,
+				Name:       path.Base(metaPath),
 				RemoteName: p.generateRemoteName(),
 				IsDir:      true,
 				Size:       0,
@@ -282,7 +282,7 @@ func (p *Proxy) ExportLocal(inputPath, outputDir string) error {
 				Salt:       []byte{},
 				UpdatedAt:  fi.ModTime(),
 			}
-			return p.meta.Save(meta)
+			return p.meta.Save(meta, metaPath)
 		}
 		fek, err := crypto.GenerateRandomBytes(32)
 		if err != nil {
@@ -321,7 +321,7 @@ func (p *Proxy) ExportLocal(inputPath, outputDir string) error {
 			return closeErr
 		}
 		meta := &metadata.FileMeta{
-			Path:       metaPath,
+			Name:       path.Base(metaPath),
 			RemoteName: remoteName,
 			Size:       fi.Size(),
 			IsDir:      false,
@@ -329,7 +329,7 @@ func (p *Proxy) ExportLocal(inputPath, outputDir string) error {
 			Salt:       salt,
 			UpdatedAt:  fi.ModTime(),
 		}
-		return p.meta.Save(meta)
+		return p.meta.Save(meta, metaPath)
 	})
 	return err
 }
@@ -380,10 +380,11 @@ func (p *Proxy) recursiveRemoteDelete(pname string) {
 		return
 	}
 	for _, child := range children {
+		childPath := path.Join(pname, child.Name)
 		if child.IsDir {
-			p.recursiveRemoteDelete(child.Path)
+			p.recursiveRemoteDelete(childPath)
 		} else {
-			log.Printf("Proxy: Deleting remote file '%s' for '%s'", child.RemoteName, child.Path)
+			log.Printf("Proxy: Deleting remote file '%s' for '%s'", child.RemoteName, childPath)
 			p.remote.Delete(child.RemoteName)
 		}
 	}

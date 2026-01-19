@@ -26,7 +26,7 @@ func (fs *FileSystem) Mkdir(ctx context.Context, name string, perm os.FileMode) 
 	name = fs.p.normalizePath(name)
 	log.Printf("FS Mkdir: '%s'", name)
 	meta := &metadata.FileMeta{
-		Path:       name,
+		Name:       path.Base(name),
 		RemoteName: fs.p.generateRemoteName(), // Identity for virtual directory
 		IsDir:      true,
 		Size:       0,
@@ -34,7 +34,7 @@ func (fs *FileSystem) Mkdir(ctx context.Context, name string, perm os.FileMode) 
 		Salt:       []byte{}, // Satisfy NOT NULL
 		UpdatedAt:  time.Now(),
 	}
-	return fs.p.meta.Save(meta)
+	return fs.p.meta.Save(meta, name)
 }
 
 func (fs *FileSystem) SetPendingSize(name string, size int64) {
@@ -113,7 +113,7 @@ func (fs *FileSystem) Stat(ctx context.Context, name string) (os.FileInfo, error
 	}
 
 	return &FileInfo{
-		name:    path.Base(meta.Path),
+		name:    meta.Name,
 		size:    meta.Size,
 		isDir:   meta.IsDir,
 		modTime: meta.UpdatedAt,
@@ -258,7 +258,7 @@ func (f *ProxyFile) Readdir(count int) ([]os.FileInfo, error) {
 	infos := []os.FileInfo{}
 	for _, m := range metas {
 		infos = append(infos, &FileInfo{
-			name:    path.Base(m.Path),
+			name:    m.Name,
 			size:    m.Size,
 			isDir:   m.IsDir,
 			modTime: m.UpdatedAt,
@@ -285,7 +285,7 @@ func (f *ProxyFile) Stat() (os.FileInfo, error) {
 	}
 	if f.meta != nil {
 		return &FileInfo{
-			name:    path.Base(f.meta.Path),
+			name:    f.meta.Name,
 			size:    f.meta.Size,
 			isDir:   false,
 			modTime: f.meta.UpdatedAt,
