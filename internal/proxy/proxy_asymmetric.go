@@ -176,17 +176,37 @@ func decryptPrivateKeyWithKey(encryptedKey []byte, key []byte) ([]byte, error) {
 
 // 辅助函数：追加加密的私钥到 tar 包
 func (p *Proxy) appendEncryptedKey(tarPath string, encryptedKey []byte) error {
-	// 打开 tar 文件（追加模式）
-	file, err := os.OpenFile(tarPath, os.O_APPEND|os.O_WRONLY, 0644)
+	// 1. 截断文件，删除原来的结束标记（两个 512 字节的全零块）
+	file, err := os.OpenFile(tarPath, os.O_RDWR, 0644)
 	if err != nil {
 		return err
 	}
 	defer file.Close()
 
-	tarWriter := tar.NewWriter(file)
-	defer tarWriter.Close()
+	// 获取文件大小
+	stat, err := file.Stat()
+	if err != nil {
+		return err
+	}
 
-	// 写入加密的私钥
+	// 截断文件，删除最后的 1024 字节（两个 512 字节的结束标记）
+	newSize := stat.Size() - 1024
+	if newSize < 0 {
+		newSize = 0
+	}
+
+	if err := file.Truncate(newSize); err != nil {
+		return err
+	}
+
+	// 2. 定位到文件末尾
+	if _, err := file.Seek(newSize, 0); err != nil {
+		return err
+	}
+
+	// 3. 创建 tar writer 并写入加密的私钥
+	tarWriter := tar.NewWriter(file)
+
 	header := &tar.Header{
 		Name: "private_key.enc",
 		Mode: 0600,
@@ -194,11 +214,26 @@ func (p *Proxy) appendEncryptedKey(tarPath string, encryptedKey []byte) error {
 	}
 
 	if err := tarWriter.WriteHeader(header); err != nil {
+		tarWriter.Close()
 		return err
 	}
 
-	_, err = tarWriter.Write(encryptedKey)
-	return err
+	if _, err := tarWriter.Write(encryptedKey); err != nil {
+		tarWriter.Close()
+		return err
+	}
+
+	// 4. 关闭 tar writer（写入新的结束标记）
+	if err := tarWriter.Close(); err != nil {
+		return err
+	}
+
+	// 5. 强制刷新文件缓冲区
+	if err := file.Sync(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // 辅助函数：从 tar 包提取加密的私钥

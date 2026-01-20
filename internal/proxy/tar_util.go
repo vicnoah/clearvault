@@ -89,7 +89,6 @@ func (p *Proxy) CreateTarPackage(
 
 	// 3. 创建 tar writer
 	tarWriter := tar.NewWriter(file)
-	defer tarWriter.Close()
 
 	// 4. 处理每个路径
 	var metadataFiles []string
@@ -98,6 +97,7 @@ func (p *Proxy) CreateTarPackage(
 	for _, path := range paths {
 		meta, err := p.meta.Get(path)
 		if err != nil {
+			tarWriter.Close()
 			return "", err
 		}
 
@@ -105,6 +105,7 @@ func (p *Proxy) CreateTarPackage(
 			// 处理目录
 			size, err := p.addDirectoryToTar(tarWriter, path, tempPubKey, aesKey, &metadataFiles)
 			if err != nil {
+				tarWriter.Close()
 				return "", err
 			}
 			totalSize += size
@@ -112,6 +113,7 @@ func (p *Proxy) CreateTarPackage(
 			// 处理文件
 			size, err := p.addFileToTar(tarWriter, path, meta, tempPubKey, aesKey, &metadataFiles)
 			if err != nil {
+				tarWriter.Close()
 				return "", err
 			}
 			totalSize += size
@@ -122,6 +124,7 @@ func (p *Proxy) CreateTarPackage(
 	rsaEngine := crypto.NewAsymmetricEngine(tempPubKey, nil)
 	encryptedAESKey, err := rsaEngine.EncryptKey(aesKey)
 	if err != nil {
+		tarWriter.Close()
 		return "", err
 	}
 
@@ -138,6 +141,17 @@ func (p *Proxy) CreateTarPackage(
 
 	// 7. 添加清单文件到 tar
 	if err := p.addManifestToTar(tarWriter, manifest); err != nil {
+		tarWriter.Close()
+		return "", err
+	}
+
+	// 8. 显式关闭 tar writer（必须在函数返回前完成）
+	if err := tarWriter.Close(); err != nil {
+		return "", err
+	}
+
+	// 9. 强制刷新文件缓冲区
+	if err := file.Sync(); err != nil {
 		return "", err
 	}
 
