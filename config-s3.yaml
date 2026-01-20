@@ -1,0 +1,27 @@
+# 服务端配置
+server:
+  listen: "0.0.0.0:8080"
+  base_url: "/dav"
+  auth:
+    user: "admin"
+    pass: "123456"
+
+# S3 远端存储配置
+remote:
+  type: s3
+  endpoint: "localhost:9000"
+  region: "us-east-1"
+  bucket: "clearvault"
+  access_key: "minioadmin"
+  secret_key: "minioadmin"
+  use_ssl: false
+  # 高级配置（可选）
+  # multipart_threshold: 5242880    # 5MB，超过此大小使用分片上传
+  # multipart_concurrency: 4        # 并发上传分片数
+
+# 安全与持久化
+security:
+  master_key: ""
+storage:
+  metadata_path: "./storage/metadata"
+  cache_dir: "./storage/cache"

@@ -11,6 +11,7 @@ import (
 	"clearvault/internal/config"
 	"clearvault/internal/metadata"
 	"clearvault/internal/proxy"
+	"clearvault/internal/remote"
 	dav "clearvault/internal/webdav"
 	"golang.org/x/net/webdav"
 )
@@ -147,9 +148,14 @@ func handleLegacyExport(cfg *config.Config, meta metadata.Storage, inShort, outS
 	}
 
 	// 启动 WebDAV 服务器
-	remote := dav.NewRemoteClient(cfg.Remote.URL, cfg.Remote.User, cfg.Remote.Pass)
+	// 使用工厂模式创建远程存储客户端
+	remoteStorage, err := remote.NewRemoteStorage(cfg.Remote)
+	if err != nil {
+		log.Fatalf("Failed to create remote storage: %v", err)
+	}
+	defer remoteStorage.Close()
 
-	p, err := proxy.NewProxy(meta, remote, cfg.Security.MasterKey)
+	p, err := proxy.NewProxy(meta, remoteStorage, cfg.Security.MasterKey)
 	if err != nil {
 		log.Fatalf("Failed to initialize proxy: %v", err)
 	}

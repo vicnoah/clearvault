@@ -10,10 +10,11 @@ ClearVault is an encrypted cloud storage proxy service based on the WebDAV proto
 - 🌐 **WebDAV Protocol**: Compatible with all WebDAV clients (RaiDrive, Windows Explorer, macOS Finder, etc.)
 - 📁 **Filename Encryption**: Complete encryption of filenames and directory structure; remote storage only saves random hashes
 - 🚀 **Streaming Encryption/Decryption**: Supports streaming processing for large files with low memory usage
-- 💾 **Flexible Metadata Storage**: Supports local filesystem or SQLite database for metadata storage
+- 💾 **Flexible Metadata Storage**: Uses local filesystem for metadata storage, simple and reliable
 - 🔄 **Full WebDAV Support**: Supports file upload, download, delete, rename, directory operations, etc.
 - 🪟 **Windows Optimization**: Special optimizations for Windows file locking and RaiDrive client
 - 📤 **Offline Encrypted Export**: Encrypt files locally and manually upload to cloud when WebDAV uploads are unstable
+- 🌍 **S3 Protocol Support**: Supports S3-compatible storage (MinIO, Cloudflare R2, AWS S3, etc.) as remote storage
 
 ## 📋 System Requirements
 
@@ -57,10 +58,8 @@ security:
   master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
 
 storage:
-  # Metadata storage configuration
-  metadata_type: "local"  # Options: local, sqlite
-  metadata_path: "storage/metadata"  # Path for local type
-  # db_path: "storage/metadata.db"  # Path for sqlite type
+  # Metadata storage configuration (using local filesystem)
+  metadata_path: "storage/metadata"
   cache_dir: "storage/cache"
 
 remote:
@@ -130,7 +129,7 @@ In some environments, WebDAV uploads for large files may be unstable. You can fi
 
 1. Prepare configuration with a stable master key and metadata storage:
    - `security.master_key` must be stable and identical to the one used by your online ClearVault service
-   - `storage.metadata_type` / `storage.metadata_path` decide where metadata will be written
+   - `storage.metadata_path` determines where metadata will be written
 
 2. Run a one‑shot offline export command (it does not start the WebDAV server):
 
@@ -215,7 +214,6 @@ docker run -d \
   -e REMOTE_URL="https://your-webdav.com/dav/" \
   -e REMOTE_USER="user" \
   -e REMOTE_PASS="pass" \
-  -e STORAGE_METADATA_TYPE="local" \
   -v $(pwd)/storage:/app/storage \
   ghcr.io/vicnoah/clearvault:latest
 ```
@@ -226,7 +224,6 @@ Supported Environment Variables (can override config.yaml or be used as primary 
 - `SERVER_BASE_URL`
 - `SERVER_AUTH_USER`
 - `SERVER_AUTH_PASS`
-- `STORAGE_METADATA_TYPE`
 - `STORAGE_METADATA_PATH`
 - `STORAGE_CACHE_DIR`
 - `REMOTE_URL`

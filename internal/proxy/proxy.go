@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"clearvault/internal/crypto"
 	"clearvault/internal/metadata"
-	"clearvault/internal/webdav"
+	"clearvault/internal/remote"
 	sysrand "crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -21,19 +21,19 @@ import (
 
 type Proxy struct {
 	meta         metadata.Storage
-	remote       *webdav.RemoteClient
+	remote       remote.RemoteStorage
 	masterKey    []byte
 	pendingSizes sync.Map // path -> int64
 }
 
-func NewProxy(meta metadata.Storage, remote *webdav.RemoteClient, masterKeyBase64 string) (*Proxy, error) {
+func NewProxy(meta metadata.Storage, remoteStorage remote.RemoteStorage, masterKeyBase64 string) (*Proxy, error) {
 	key, err := base64.StdEncoding.DecodeString(masterKeyBase64)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode master key: %w", err)
 	}
 	return &Proxy{
 		meta:      meta,
-		remote:    remote,
+		remote:    remoteStorage,
 		masterKey: key,
 	}, nil
 }
@@ -463,7 +463,12 @@ func (p *Proxy) DownloadRange(pname string, offset, length int64) (io.ReadCloser
 
 	// Calculate chunks
 	startChunk := uint64(offset / crypto.ChunkSize)
-	endChunk := uint64((offset + length - 1) / crypto.ChunkSize)
+	var endChunk uint64
+	if length > 0 {
+		endChunk = uint64((offset + length - 1) / crypto.ChunkSize)
+	} else {
+		endChunk = startChunk
+	}
 
 	// Cap endChunk to total chunks
 	totalChunks := uint64((meta.Size + crypto.ChunkSize - 1) / crypto.ChunkSize)
@@ -475,7 +480,17 @@ func (p *Proxy) DownloadRange(pname string, offset, length int64) (io.ReadCloser
 	}
 
 	encStart := int64(startChunk) * crypto.CipherChunkSize
+	// Calculate the actual encrypted length needed
+	// This is the number of full cipher chunks we need to read
 	encLength := int64(endChunk-startChunk+1) * crypto.CipherChunkSize
+
+	// Cap encLength to the actual encrypted file size
+	// The encrypted file size is: original_size + num_chunks * TagSize
+	// But we don't have the encrypted size, so we just read the chunks we need
+	// The S3 client will handle reading beyond the file end
+	// However, we need to cap it to avoid requesting too much data
+	// The encrypted size is at most: meta.Size + num_chunks * TagSize
+	// But we can just let S3 handle it
 
 	cipherRC, err := p.remote.DownloadRange(meta.RemoteName, encStart, encLength)
 	if err != nil {

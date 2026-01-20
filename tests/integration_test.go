@@ -5,6 +5,7 @@ import (
 	"clearvault/internal/config"
 	"clearvault/internal/metadata"
 	"clearvault/internal/proxy"
+	"clearvault/internal/remote"
 	"clearvault/internal/webdav"
 	"context"
 	"io"
@@ -35,8 +36,14 @@ func TestIntegration(t *testing.T) {
 	}
 	defer meta.Close()
 
-	remote := webdav.NewRemoteClient(cfg.Remote.URL, cfg.Remote.User, cfg.Remote.Pass)
-	p, err := proxy.NewProxy(meta, remote, cfg.Security.MasterKey)
+	remoteClient, _ := webdav.NewClient(webdav.WebDAVConfig{
+		URL:  cfg.Remote.URL,
+		User: cfg.Remote.User,
+		Pass: cfg.Remote.Pass,
+	})
+	var remoteStorage remote.RemoteStorage = remoteClient
+
+	p, err := proxy.NewProxy(meta, remoteStorage, cfg.Security.MasterKey)
 	if err != nil {
 		t.Fatalf("Failed to init proxy: %v", err)
 	}
@@ -83,6 +90,6 @@ func TestIntegration(t *testing.T) {
 	// Cleanup remote
 	metaInfo, _ := p.GetFileMeta(testFile)
 	if metaInfo != nil {
-		remote.Delete(metaInfo.RemoteName)
+		remoteStorage.Delete(metaInfo.RemoteName)
 	}
 }

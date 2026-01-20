@@ -63,7 +63,7 @@
 
 4. **Metadata Manager** (`internal/metadata`)
    - 文件元数据存储和检索
-   - 支持多种后端（Local、SQLite）
+   - 使用本地文件系统（JSON 格式）
    - 路径到远程文件名的映射
 
 ## 加密系统
@@ -204,35 +204,13 @@ storage/metadata/
 - 简单直观
 - 易于备份和迁移
 - 无额外依赖
+- 文件级隔离，避免单点故障
 
 **缺点**：
 - 大量文件时性能下降
 - 目录遍历开销大
 
-#### SQLite（数据库）
-
-```sql
-CREATE TABLE metadata (
-    path TEXT PRIMARY KEY,
-    remote_name TEXT NOT NULL,
-    size INTEGER NOT NULL,
-    is_dir BOOLEAN NOT NULL,
-    fek BLOB,
-    salt BLOB,
-    updated_at DATETIME
-);
-
-CREATE INDEX idx_remote_name ON metadata(remote_name);
-```
-
-**优点**：
-- 高性能查询
-- 支持大量文件
-- 事务支持
-
-**缺点**：
-- 需要定期备份数据库
-- 稍微复杂
+**注意**：ClearVault 已移除 SQLite 支持，统一使用 JSON 文件格式存储元数据，以简化架构并提高可靠性。
 
 ## WebDAV 协议实现
 

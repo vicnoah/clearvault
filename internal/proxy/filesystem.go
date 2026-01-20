@@ -175,9 +175,12 @@ func (f *ProxyFile) Read(p []byte) (n int, err error) {
 		length := int64(0)
 		if f.meta != nil {
 			length = f.meta.Size - f.offset
+			log.Printf("FS Read: file '%s', meta.Size=%d, offset=%d, length=%d", f.name, f.meta.Size, f.offset, length)
+		} else {
+			log.Printf("FS Read: file '%s', meta is nil, using default length", f.name)
 		}
 
-		if length <= 0 && f.meta.Size > 0 {
+		if f.meta != nil && length <= 0 && f.meta.Size > 0 {
 			return 0, io.EOF
 		}
 

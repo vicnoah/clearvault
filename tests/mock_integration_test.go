@@ -5,6 +5,7 @@ import (
 	"clearvault/internal/config"
 	"clearvault/internal/metadata"
 	"clearvault/internal/proxy"
+	"clearvault/internal/remote"
 	"clearvault/internal/webdav"
 	"context"
 	"io"
@@ -49,8 +50,14 @@ func TestIntegrationLocalMock(t *testing.T) {
 		t.Fatalf("Failed to init metadata: %v", err)
 	}
 
-	remote := webdav.NewRemoteClient(cfg.Remote.URL, cfg.Remote.User, cfg.Remote.Pass)
-	p, _ := proxy.NewProxy(meta, remote, cfg.Security.MasterKey)
+	remoteClient, _ := webdav.NewClient(webdav.WebDAVConfig{
+		URL:  cfg.Remote.URL,
+		User: cfg.Remote.User,
+		Pass: cfg.Remote.Pass,
+	})
+	var remoteStorage remote.RemoteStorage = remoteClient
+
+	p, _ := proxy.NewProxy(meta, remoteStorage, cfg.Security.MasterKey)
 	fs := proxy.NewFileSystem(p)
 
 	// Test Upload

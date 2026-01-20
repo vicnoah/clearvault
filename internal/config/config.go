@@ -30,9 +30,21 @@ type Auth struct {
 }
 
 type RemoteConfig struct {
+	// 通用字段
+	Type string `yaml:"type"` // "webdav" 或 "s3"
+
+	// WebDAV 字段
 	URL  string `yaml:"url"`
 	User string `yaml:"user"`
 	Pass string `yaml:"pass"`
+
+	// S3 字段
+	Endpoint  string `yaml:"endpoint"`
+	Region    string `yaml:"region"`
+	Bucket    string `yaml:"bucket"`
+	AccessKey string `yaml:"access_key"`
+	SecretKey string `yaml:"secret_key"`
+	UseSSL    bool   `yaml:"use_ssl"`
 }
 
 type SecurityConfig struct {
@@ -97,6 +109,9 @@ func processEnvOverrides(cfg *Config) {
 	if v := os.Getenv("STORAGE_CACHE_DIR"); v != "" {
 		cfg.Storage.CacheDir = v
 	}
+	if v := os.Getenv("REMOTE_TYPE"); v != "" {
+		cfg.Remote.Type = v
+	}
 	if v := os.Getenv("REMOTE_URL"); v != "" {
 		cfg.Remote.URL = v
 	}
@@ -105,6 +120,24 @@ func processEnvOverrides(cfg *Config) {
 	}
 	if v := os.Getenv("REMOTE_PASS"); v != "" {
 		cfg.Remote.Pass = v
+	}
+	if v := os.Getenv("REMOTE_ENDPOINT"); v != "" {
+		cfg.Remote.Endpoint = v
+	}
+	if v := os.Getenv("REMOTE_REGION"); v != "" {
+		cfg.Remote.Region = v
+	}
+	if v := os.Getenv("REMOTE_BUCKET"); v != "" {
+		cfg.Remote.Bucket = v
+	}
+	if v := os.Getenv("REMOTE_ACCESS_KEY"); v != "" {
+		cfg.Remote.AccessKey = v
+	}
+	if v := os.Getenv("REMOTE_SECRET_KEY"); v != "" {
+		cfg.Remote.SecretKey = v
+	}
+	if v := os.Getenv("REMOTE_USE_SSL"); v != "" {
+		cfg.Remote.UseSSL = v == "true" || v == "1"
 	}
 	if v := os.Getenv("MASTER_KEY"); v != "" {
 		cfg.Security.MasterKey = v

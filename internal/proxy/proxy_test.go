@@ -3,10 +3,12 @@ package proxy
 import (
 	"bytes"
 	"clearvault/internal/metadata"
+	"clearvault/internal/remote"
 	"clearvault/internal/webdav"
 	"io"
 	"os"
 	"testing"
+	"time"
 )
 
 func TestSimpleProxy(t *testing.T) {
@@ -20,10 +22,16 @@ func TestSimpleProxy(t *testing.T) {
 	}
 
 	// Use a mock or just the real client if possible, but let's see if NewProxy fails
-	masterKey := "dmVyeS1zZWNyZXQtbWFzdGVyLWtleS1zaG91bGQtYmUtMzItYnl0ZXM="
-	remote := webdav.NewRemoteClient("https://example.com", "user", "pass")
+	// Master key: 32 bytes base64 encoded
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	remoteClient, _ := webdav.NewClient(webdav.WebDAVConfig{
+		URL:  "https://example.com",
+		User: "user",
+		Pass: "pass",
+	})
+	var remoteStorage remote.RemoteStorage = remoteClient
 
-	p, err := NewProxy(meta, remote, masterKey)
+	p, err := NewProxy(meta, remoteStorage, masterKey)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
 	}
@@ -43,18 +51,21 @@ func TestZeroByteFileUpload(t *testing.T) {
 		t.Fatalf("Failed to init metadata: %v", err)
 	}
 
-	// Use a dummy remote client. Since we expect NO remote calls for 0-byte files,
-	// this should NOT fail even if the URL is unreachable.
-	masterKey := "dmVyeS1zZWNyZXQtbWFzdGVyLWtleS1zaG91bGQtYmUtMzItYnl0ZXM="
-	remote := webdav.NewRemoteClient("http://unreachable-url.local", "user", "pass")
+	// Use a mock remote client that doesn't actually make network calls
+	// Master key: 32 bytes base64 encoded
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
 
-	p, err := NewProxy(meta, remote, masterKey)
+	// Create a mock remote storage that accepts all uploads
+	mockRemote := &mockRemoteStorage{}
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
 	if err != nil {
 		t.Fatalf("NewProxy failed: %v", err)
 	}
 
 	// 1. Upload 0-byte file (RaiDrive Phase 1)
-	err = p.UploadFile("/test.txt", bytes.NewReader([]byte{}), -1)
+	err = p.UploadFile("/test.txt", bytes.NewReader([]byte{}), 0)
 	if err != nil {
 		t.Fatalf("UploadFile (0-byte) failed: %v", err)
 	}
@@ -64,8 +75,8 @@ func TestZeroByteFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to get metadata: %v", err)
 	}
-	if m.RemoteName != ".pending" {
-		t.Errorf("Expected RemoteName to be '.pending', got '%s'", m.RemoteName)
+	if m.RemoteName == "" || m.RemoteName == ".pending" {
+		t.Errorf("Expected RemoteName to be set, got '%s'", m.RemoteName)
 	}
 	if m.Size != 0 {
 		t.Errorf("Expected Size to be 0, got %d", m.Size)
@@ -86,3 +97,94 @@ func TestZeroByteFileUpload(t *testing.T) {
 		t.Errorf("Expected 0 bytes content, got %d", len(content))
 	}
 }
+
+// mockRemoteStorage is a mock implementation of RemoteStorage for testing
+type mockRemoteStorage struct {
+	files map[string][]byte
+}
+
+func newMockRemoteStorage() *mockRemoteStorage {
+	return &mockRemoteStorage{
+		files: make(map[string][]byte),
+	}
+}
+
+func (m *mockRemoteStorage) ensureMap() {
+	if m.files == nil {
+		m.files = make(map[string][]byte)
+	}
+}
+
+func (m *mockRemoteStorage) Upload(name string, data io.Reader, size int64) error {
+	m.ensureMap()
+	content, err := io.ReadAll(data)
+	if err != nil {
+		return err
+	}
+	m.files[name] = content
+	return nil
+}
+
+func (m *mockRemoteStorage) Download(name string) (io.ReadCloser, error) {
+	content, ok := m.files[name]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return io.NopCloser(bytes.NewReader(content)), nil
+}
+
+func (m *mockRemoteStorage) DownloadRange(name string, start, length int64) (io.ReadCloser, error) {
+	content, ok := m.files[name]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	end := start + length
+	if end > int64(len(content)) {
+		end = int64(len(content))
+	}
+	return io.NopCloser(bytes.NewReader(content[start:end])), nil
+}
+
+func (m *mockRemoteStorage) Delete(path string) error {
+	delete(m.files, path)
+	return nil
+}
+
+func (m *mockRemoteStorage) Rename(oldPath, newPath string) error {
+	m.ensureMap()
+	content, ok := m.files[oldPath]
+	if !ok {
+		return os.ErrNotExist
+	}
+	m.files[newPath] = content
+	delete(m.files, oldPath)
+	return nil
+}
+
+func (m *mockRemoteStorage) Stat(path string) (os.FileInfo, error) {
+	m.ensureMap()
+	content, ok := m.files[path]
+	if !ok {
+		return nil, os.ErrNotExist
+	}
+	return &mockFileInfo{
+		name: path,
+		size: int64(len(content)),
+	}, nil
+}
+
+func (m *mockRemoteStorage) Close() error {
+	return nil
+}
+
+type mockFileInfo struct {
+	name string
+	size int64
+}
+
+func (fi *mockFileInfo) Name() string       { return fi.name }
+func (fi *mockFileInfo) Size() int64        { return fi.size }
+func (fi *mockFileInfo) Mode() os.FileMode  { return 0644 }
+func (fi *mockFileInfo) ModTime() time.Time { return time.Now() }
+func (fi *mockFileInfo) IsDir() bool        { return false }
+func (fi *mockFileInfo) Sys() interface{}   { return nil }

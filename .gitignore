@@ -1,0 +1,51 @@
+# Compiled binaries
+clearvault
+tools/zs3
+
+# Log files
+*.log
+clearvault.log
+tools/zs3.log
+
+# Storage directory
+storage/
+
+# Build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+
+# Dependency directories
+vendor/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+
+# Configuration files (keep template, ignore local configs)
+config-local.yaml
+config-*.yaml
+!config.yaml
+!config-s3.yaml
+
+# Tools build artifacts
+tools/data/

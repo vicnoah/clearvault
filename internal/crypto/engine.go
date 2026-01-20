@@ -201,7 +201,12 @@ func (e *Engine) DecryptRange(r io.ReaderAt, w io.Writer, baseNonce []byte, star
 	}
 
 	startChunk := uint64(start / ChunkSize)
-	endChunk := uint64((start + length - 1) / ChunkSize)
+	var endChunk uint64
+	if length > 0 {
+		endChunk = uint64((start + length - 1) / ChunkSize)
+	} else {
+		endChunk = startChunk
+	}
 
 	for i := startChunk; i <= endChunk; i++ {
 		cipherOffset := int64(i) * CipherChunkSize

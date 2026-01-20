@@ -10,17 +10,17 @@ import (
 	"clearvault/pkg/gowebdav"
 )
 
-// WebDAVClient WebDAV 远端存储客户端
-type WebDAVClient struct {
-	client *gowebdav.Client
-	url    string
-}
-
 // WebDAVConfig WebDAV 客户端配置
 type WebDAVConfig struct {
 	URL  string
 	User string
 	Pass string
+}
+
+// WebDAVClient WebDAV 远端客户端实现
+type WebDAVClient struct {
+	client *gowebdav.Client
+	url    string
 }
 
 // NewClient 创建 WebDAV 客户端
@@ -41,17 +41,7 @@ func NewClient(cfg WebDAVConfig) (*WebDAVClient, error) {
 	}, nil
 }
 
-// NewRemoteClient 保持向后兼容的旧构造函数
-func NewRemoteClient(url, user, pass string) *WebDAVClient {
-	client, _ := NewClient(WebDAVConfig{
-		URL:  url,
-		User: user,
-		Pass: pass,
-	})
-	return client
-}
-
-// SetTransport 设置自定义传输层
+// SetTransport 设置 HTTP 传输层（用于测试）
 func (c *WebDAVClient) SetTransport(rt http.RoundTripper) {
 	c.client.SetTransport(rt)
 }
@@ -67,7 +57,7 @@ func (c *WebDAVClient) Download(name string) (io.ReadCloser, error) {
 	return c.client.ReadStream(name)
 }
 
-// DownloadRange 下载文件的指定字节范围
+// DownloadRange 从 WebDAV 服务器下载文件的指定范围
 func (c *WebDAVClient) DownloadRange(name string, start, length int64) (io.ReadCloser, error) {
 	return c.client.ReadStreamRange(name, start, length)
 }
@@ -77,7 +67,7 @@ func (c *WebDAVClient) Delete(path string) error {
 	return c.client.RemoveAll(path)
 }
 
-// Rename 重命名 WebDAV 文件
+// Rename 重命名 WebDAV 服务器上的文件
 func (c *WebDAVClient) Rename(oldPath, newPath string) error {
 	return c.client.Rename(oldPath, newPath, true)
 }
