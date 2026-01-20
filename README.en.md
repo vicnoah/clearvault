@@ -10,17 +10,18 @@ ClearVault is an encrypted cloud storage proxy service based on the WebDAV proto
 - 🌐 **WebDAV Protocol**: Compatible with all WebDAV clients (RaiDrive, Windows Explorer, macOS Finder, etc.)
 - 📁 **Filename Encryption**: Complete encryption of filenames and directory structure; remote storage only saves random hashes
 - 🚀 **Streaming Encryption/Decryption**: Supports streaming processing for large files with low memory usage
-- 💾 **Flexible Metadata Storage**: Uses local filesystem for metadata storage, simple and reliable
+- 💾 **Flexible Metadata Storage**: Uses local filesystem (JSON) for metadata storage, simple and reliable
 - 🔄 **Full WebDAV Support**: Supports file upload, download, delete, rename, directory operations, etc.
 - 🪟 **Windows Optimization**: Special optimizations for Windows file locking and RaiDrive client
 - 📤 **Offline Encrypted Export**: Encrypt files locally and manually upload to cloud when WebDAV uploads are unstable
 - 🌍 **S3 Protocol Support**: Supports S3-compatible storage (MinIO, Cloudflare R2, AWS S3, etc.) as remote storage
+- 📤📤 **Simple Share Feature**: Export/import encrypted metadata packages for secure file sharing
 
 ## 📋 System Requirements
 
 - Go 1.21 or higher (for compilation)
 - Supported OS: Windows, Linux, macOS
-- Remote WebDAV storage service (e.g., Nextcloud, Nutstore, etc.)
+- Remote WebDAV storage service (e.g., Nextcloud, Nutstore, etc.) or S3-compatible storage (MinIO, Cloudflare R2, AWS S3, etc.)
 
 ## 🚀 Quick Start
 
@@ -46,7 +47,7 @@ server:
   listen: "0.0.0.0:8080"
   # WebDAV base URL (default is /)
   base_url: "/dav"
-  
+
   # Authentication credentials
   auth:
     user: "admin"
@@ -71,7 +72,7 @@ remote:
 
 4. **Start Service**
 ```bash
-./clearvault --config config.yaml
+./clearvault server --config config.yaml
 ```
 
 After startup, the local WebDAV service address is: `http://127.0.0.1:8080/dav/`
@@ -134,16 +135,14 @@ In some environments, WebDAV uploads for large files may be unstable. You can fi
 2. Run a one‑shot offline export command (it does not start the WebDAV server):
 
 ```bash
-./clearvault -config config.yaml -in /path/to/plain-dir-or-file -out /path/to/export-dir
+./clearvault encrypt --config config.yaml -in /path/to/plain-dir-or-file -out /path/to/export-dir
 ```
 
 Parameter description:
 
 - `-in`: Local path to export (single file or a directory)
 - `-out`: Output directory for encrypted files; it will only contain ciphertext files with random names
-- Legacy parameters (still supported for compatibility):
-  - `-export-input` is equivalent to `-in` (when `-in` is not provided)
-  - `-export-output` is equivalent to `-out` (when `-out` is not provided)
+- `--config`: Configuration file path (default "config.yaml")
 
 Notes:
 
@@ -237,17 +236,19 @@ Supported Environment Variables (can override config.yaml or be used as primary 
 
 ## 🔧 Configuration Guide
 
-### Metadata Storage Types
+### Metadata Storage
 
-**Local (Filesystem)**
-- Pros: Simple, no dependencies, easy to backup
-- Cons: Lower performance with many small files
-- Use Case: Personal use, file count < 10,000
+ClearVault uses local filesystem storage for metadata (JSON format), with each file corresponding to a metadata file.
 
-**SQLite (Database)**
-- Pros: Better performance, supports large number of files
-- Cons: Requires regular database backups
-- Use Case: Large number of files, better performance needed
+**Pros:**
+- Simple, no dependencies, easy to backup
+- File-level isolation, avoiding database corruption risks
+- Easy to manually view and edit
+
+**Use Cases:**
+- Personal use, file count < 10,000
+- Need simple and reliable storage solution
+- Avoid database dependencies
 
 ### Security Recommendations
 
@@ -255,6 +256,7 @@ Supported Environment Variables (can override config.yaml or be used as primary 
    - Use at least 32 bytes of strong random password (**Recommend leaving empty for auto-generation**)
    - Keep it safe; data cannot be recovered if lost
    - The auto-generated key will be saved to config.yaml; please backup this file
+   - Master key is used to encrypt file encryption keys (FEK), core to data security
 
 2. **Authentication Password**:
    - Use strong password
@@ -301,6 +303,12 @@ ClearVault supports sharing metadata through password-encrypted tar packages, al
 ./clearvault export \
     --paths "/documents/report.pdf" \
     --output /tmp/export
+
+# Use specified configuration file
+./clearvault export \
+    --config config-s3.yaml \
+    --paths "/documents" \
+    --output /tmp/export
 ```
 
 ### Import Share Package
@@ -309,6 +317,12 @@ ClearVault supports sharing metadata through password-encrypted tar packages, al
 ./clearvault import \
     --input /tmp/share_abc123.tar \
     --share-key "my-secret-password"
+
+# Use specified configuration file
+./clearvault import \
+    --config config-s3.yaml \
+    --input /tmp/share.tar \
+    --share-key "password"
 ```
 
 ### Share Package Structure
@@ -359,6 +373,21 @@ share_abc123.tar
 
 ## 🛠️ Advanced Features
 
+### Command Line Help
+
+ClearVault provides a comprehensive command line help system:
+
+```bash
+# View all available commands
+./clearvault --help
+
+# View help for specific commands
+./clearvault encrypt --help
+./clearvault export --help
+./clearvault import --help
+./clearvault server --help
+```
+
 ### Reverse Proxy Configuration (Nginx)
 
 ```nginx
@@ -385,9 +414,9 @@ server {
 
 ### Performance Optimization
 
-1. **Metadata Storage**: Use SQLite when file count > 10,000
-2. **Remote Storage**: Choose WebDAV service with low network latency
-3. **Local Cache**: Consider adding a caching layer at frontend (e.g., nginx cache)
+1. **Remote Storage**: Choose WebDAV service with low network latency
+2. **Local Cache**: Consider adding a caching layer at frontend (e.g., nginx cache)
+3. **Large File Handling**: Streaming encryption/decryption with low memory usage
 
 ## 📊 Technical Implementation
 
@@ -400,6 +429,7 @@ Key Technical Features:
 - Complete WebDAV protocol implementation
 - Windows file locking handling
 - RaiDrive client compatibility optimization
+- Simple share feature with multi-layer encryption
 
 ## 🤝 Contributing
 
@@ -420,3 +450,7 @@ This project is for learning and research purposes only. When using this softwar
 ## 📮 Contact
 
 For questions or suggestions, please contact via GitHub Issues.
+
+---
+
+**Note**: This documentation was updated to reflect the command line changes in v1.2.0. See [CHANGELOG.md](CHANGELOG.md) for detailed migration guide.

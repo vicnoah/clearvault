@@ -795,6 +795,12 @@ func generateRandomID(virtualPath string) string {
 ./clearvault export \
     --paths "/documents/report.pdf" \
     --output /tmp/export
+
+# 3. 使用指定配置文件
+./clearvault export \
+    --config config-s3.yaml \
+    --paths "/documents" \
+    --output /tmp/export
 ```
 
 **内部流程**：
@@ -817,6 +823,12 @@ func generateRandomID(virtualPath string) string {
 ./clearvault import \
     --input /tmp/share_abc123.tar \
     --share-key "my-secret-password"
+
+# 使用指定配置文件
+./clearvault import \
+    --config config-s3.yaml \
+    --input /tmp/share.tar \
+    --share-key "password"
 ```
 
 **内部流程**：
@@ -938,6 +950,103 @@ time ./clearvault export \
     --output /tmp/export \
     --share-key "test-password"
 ```
+
+## 命令行接口
+
+### 命令结构
+
+ClearVault 使用子命令结构，所有功能通过明确的子命令访问：
+
+```bash
+clearvault <command> [command options]
+```
+
+### 可用命令
+
+| 命令 | 功能 | 说明 |
+|------|------|------|
+| `encrypt` | 本地文件加密 | 离线加密本地文件/目录 |
+| `export` | 元数据导出 | 导出加密分享包 |
+| `import` | 元数据导入 | 导入加密分享包 |
+| `server` | 启动 WebDAV 服务器 | 启动在线服务 |
+
+### 命令参数
+
+#### encrypt 命令
+
+```bash
+clearvault encrypt -in <input_path> -out <output_dir> [--config <config_file>]
+```
+
+**参数**：
+- `-in string`：要加密的本地文件/目录路径（必需）
+- `-out string`：加密文件输出目录（必需）
+- `--config string`：配置文件路径（默认 "config.yaml"）
+- `--help`：显示帮助信息
+
+**实现**：调用 `ExportLocal()`，使用主密钥直接加密文件
+
+#### export 命令
+
+```bash
+clearvault export --paths <paths> --output <output_dir> [--share-key <key>] [--config <config_file>]
+```
+
+**参数**：
+- `--paths string`：虚拟路径列表（逗号分隔）（必需）
+- `--output string`：输出目录（必需）
+- `--share-key string`：分享密钥（可选，不指定则自动生成）
+- `--config string`：配置文件路径（默认 "config.yaml"）
+- `--help`：显示帮助信息
+
+**实现**：调用 `CreateSharePackage()`，多层加密（密码→PBKDF2→AES→RSA）
+
+#### import 命令
+
+```bash
+clearvault import --input <input_file> --share-key <key> [--config <config_file>]
+```
+
+**参数**：
+- `--input string`：输入 tar 文件路径（必需）
+- `--share-key string`：分享密钥（必需）
+- `--config string`：配置文件路径（默认 "config.yaml"）
+- `--help`：显示帮助信息
+
+**实现**：调用 `ReceiveSharePackage()`，解密并恢复元数据
+
+#### server 命令
+
+```bash
+clearvault server [--config <config_file>] [--help]
+```
+
+**参数**：
+- `--config string`：配置文件路径（默认 "config.yaml"）
+- `--help`：显示帮助信息
+
+**实现**：启动 WebDAV 服务器，连接远程存储
+
+### 帮助系统
+
+```bash
+# 查看所有可用命令
+./clearvault --help
+
+# 查看特定命令的帮助
+./clearvault encrypt --help
+./clearvault export --help
+./clearvault import --help
+./clearvault server --help
+```
+
+### 参数优先级
+
+命令行参数的优先级从高到低：
+1. 命令行参数（如 `--config custom.yaml`）
+2. 环境变量（如 `MASTER_KEY="test-key"`）
+3. 配置文件（如 `config.yaml`）
+4. 默认值
 
 ## 未来改进方向
 

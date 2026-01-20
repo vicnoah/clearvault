@@ -71,7 +71,7 @@ remote:
 
 4. **启动服务**
 ```bash
-./clearvault --config config.yaml
+./clearvault server --config config.yaml
 ```
 
 服务启动后，本地 WebDAV 服务地址为：`http://127.0.0.1:8080/dav/`
@@ -134,16 +134,14 @@ sudo mount -t davfs http://127.0.0.1:8080/dav/ /mnt/clearvault
 2. 运行一次性离线导出命令（不会启动 WebDAV 服务）：
 
 ```bash
-./clearvault -config config.yaml -in /path/to/plain-dir-or-file -out /path/to/export-dir
+./clearvault encrypt --config config.yaml -in /path/to/plain-dir-or-file -out /path/to/export-dir
 ```
 
 参数说明：
 
 - `-in`：要导出的本地路径，可以是单个文件或目录
 - `-out`：加密后文件输出目录，目录中只包含随机文件名的密文文件
-- 兼容旧参数：
-  - `-export-input` 等价于 `-in`（当 `-in` 未提供时）
-  - `-export-output` 等价于 `-out`（当 `-out` 未提供时）
+- `--config`：配置文件路径（默认 "config.yaml"）
 
 注意：
 
@@ -186,6 +184,12 @@ ClearVault 支持通过密码加密的 tar 包分享元数据，可直接通过�
 ./clearvault export \
     --paths "/documents/report.pdf" \
     --output /tmp/export
+
+# 使用指定配置文件
+./clearvault export \
+    --config config-s3.yaml \
+    --paths "/documents" \
+    --output /tmp/export
 ```
 
 ### 导入分享包
@@ -194,6 +198,12 @@ ClearVault 支持通过密码加密的 tar 包分享元数据，可直接通过�
 ./clearvault import \
     --input /tmp/share_abc123.tar \
     --share-key "my-secret-password"
+
+# 使用指定配置文件
+./clearvault import \
+    --config config-s3.yaml \
+    --input /tmp/share.tar \
+    --share-key "password"
 ```
 
 ### 分享包结构
@@ -363,6 +373,21 @@ ClearVault 使用本地文件系统存储元数据（JSON 格式），每个文�
    - 使用 VPN 或 SSH 隧道访问
 
 ## 🛠️ 高级功能
+
+### 命令行帮助
+
+ClearVault 提供了完善的命令行帮助系统：
+
+```bash
+# 查看所有可用命令
+./clearvault --help
+
+# 查看特定命令的帮助
+./clearvault encrypt --help
+./clearvault export --help
+./clearvault import --help
+./clearvault server --help
+```
 
 ### 反向代理配置（Nginx）
 

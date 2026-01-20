@@ -39,4 +39,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
 
 # Run the application
 ENTRYPOINT ["./clearvault"]
-CMD ["--config", "/app/config.yaml"]
+CMD ["server", "--config", "/app/config.yaml"]
