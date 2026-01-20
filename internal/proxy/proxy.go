@@ -19,11 +19,80 @@ import (
 	"time"
 )
 
+type PendingEntry struct {
+	createdAt time.Time
+	expiresAt time.Time
+}
+
+type PendingFileCache struct {
+	data map[string]*PendingEntry
+	mu   sync.RWMutex
+}
+
+func NewPendingFileCache() *PendingFileCache {
+	cache := &PendingFileCache{
+		data: make(map[string]*PendingEntry),
+	}
+	go cache.cleanup()
+	return cache
+}
+
+func (c *PendingFileCache) cleanup() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.mu.Lock()
+		now := time.Now()
+		for path, entry := range c.data {
+			if now.After(entry.expiresAt) {
+				delete(c.data, path)
+			}
+		}
+		c.mu.Unlock()
+	}
+}
+
+func (c *PendingFileCache) Add(path string, ttl time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.data[path] = &PendingEntry{
+		createdAt: time.Now(),
+		expiresAt: time.Now().Add(ttl),
+	}
+}
+
+func (c *PendingFileCache) Exists(path string) bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+
+	entry, exists := c.data[path]
+	if !exists {
+		return false
+	}
+
+	// Check if expired
+	if time.Now().After(entry.expiresAt) {
+		return false
+	}
+
+	return true
+}
+
+func (c *PendingFileCache) Remove(path string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	delete(c.data, path)
+}
+
 type Proxy struct {
 	meta         metadata.Storage
 	remote       remote.RemoteStorage
 	masterKey    []byte
-	pendingSizes sync.Map // path -> int64
+	pendingSizes sync.Map // path -> int64 (for tracking file size during upload)
+	pendingCache *PendingFileCache
 }
 
 func NewProxy(meta metadata.Storage, remoteStorage remote.RemoteStorage, masterKeyBase64 string) (*Proxy, error) {
@@ -32,9 +101,10 @@ func NewProxy(meta metadata.Storage, remoteStorage remote.RemoteStorage, masterK
 		return nil, fmt.Errorf("failed to decode master key: %w", err)
 	}
 	return &Proxy{
-		meta:      meta,
-		remote:    remoteStorage,
-		masterKey: key,
+		meta:         meta,
+		remote:       remoteStorage,
+		masterKey:    key,
+		pendingCache: NewPendingFileCache(),
 	}, nil
 }
 
@@ -116,50 +186,23 @@ func (c *countReader) Read(p []byte) (int, error) {
 
 func (p *Proxy) SavePlaceholder(pname string) error {
 	pname = p.normalizePath(pname)
-	log.Printf("Proxy: Saving temporary placeholder for 0-byte file '%s'", pname)
+	log.Printf("Proxy: Saving memory placeholder for 0-byte file '%s'", pname)
 
-	// Even for a placeholder, we should generate keys so that we can support valid metadata
-	// In case we want to support "reading" an empty file later (which returns 0 bytes anyway)
-	fek, err := crypto.GenerateRandomBytes(32)
-	if err != nil {
-		return err
-	}
-	salt, err := crypto.GenerateRandomBytes(12)
-	if err != nil {
-		return err
-	}
+	// Use memory placeholder instead of file system placeholder
+	// TTL is 30 seconds, which should be enough for Raidrive to complete the second phase upload
+	p.pendingCache.Add(pname, 30*time.Second)
 
-	encryptedFEK, err := p.encryptFEK(fek)
-	if err != nil {
-		return err
-	}
-
-	meta := &metadata.FileMeta{
-		Name:       path.Base(pname),
-		RemoteName: ".pending",
-		Size:       0,
-		IsDir:      false,
-		FEK:        encryptedFEK,
-		Salt:       salt,
-		UpdatedAt:  time.Now(),
-	}
-	// Check if file already exists to update it instead of failing (though Save usually upserts)
-	// But more importantly, we need to make sure we don't overwrite a REAL file with a placeholder if it already exists?
-	// RaiDrive might do PUT 0-byte on existing file?
-	// If it exists and is NOT .pending, we probably shouldn't overwrite it with .pending unless we are sure.
-	// But standard WebDAV PUT overwrites. So yes, we should overwrite.
-
-	return p.meta.Save(meta, pname)
+	return nil
 }
 
 func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 	pname = p.normalizePath(pname)
 	log.Printf("Proxy: UploadFile (Streaming) starting for '%s' (size: %d)", pname, size)
 
-	// Check if there's a temporary placeholder from previous 0-byte upload
-	existingMeta, _ := p.meta.Get(pname)
-	if existingMeta != nil && existingMeta.RemoteName == ".pending" {
-		log.Printf("Proxy: Replacing temporary placeholder with real file for '%s'", pname)
+	// Check if there's a memory placeholder from previous 0-byte upload (Raidrive compatibility)
+	if p.pendingCache.Exists(pname) {
+		log.Printf("Proxy: Replacing memory placeholder with real file for '%s'", pname)
+		p.pendingCache.Remove(pname)
 	}
 
 	fek, err := crypto.GenerateRandomBytes(32)
@@ -220,13 +263,6 @@ func (p *Proxy) UploadFile(pname string, r io.Reader, size int64) error {
 	}
 
 	// Update metadata with actual size
-	// Note: We need to handle the case where a .pending placeholder was created.
-	// UploadFile logic is separate from SavePlaceholder.
-	// If this UploadFile was called, it means we have data (or it's a 0-byte file that logic decided to upload real empty file? No, 0-byte goes to SavePlaceholder in FS).
-	// Wait, FS Close calls UploadFile ONLY if written is true (so size > 0) OR if it logic changes.
-	// In FS Close: if !f.written -> SavePlaceholder.
-	// So UploadFile here always has data > 0?
-	// Not necessarily, if someone calls UploadFile directly. But via FS, yes.
 
 	meta := &metadata.FileMeta{
 		Name:       path.Base(pname),
@@ -400,15 +436,16 @@ func (p *Proxy) RenameFile(oldPath, newPath string) error {
 
 func (p *Proxy) DownloadFile(pname string) (io.ReadCloser, error) {
 	pname = p.normalizePath(pname)
+
+	// Check if there's a memory placeholder (for Raidrive compatibility)
+	if p.pendingCache.Exists(pname) {
+		log.Printf("Proxy: Returning empty content for memory placeholder '%s'", pname)
+		return io.NopCloser(bytes.NewReader([]byte{})), nil
+	}
+
 	meta, err := p.meta.Get(pname)
 	if err != nil || meta == nil {
 		return nil, fmt.Errorf("file not found: %s", pname)
-	}
-
-	// If this is a temporary placeholder (0-byte upload), return empty reader
-	if meta.RemoteName == ".pending" {
-		log.Printf("Proxy: Returning empty content for temporary placeholder '%s'", pname)
-		return io.NopCloser(bytes.NewReader([]byte{})), nil
 	}
 
 	fek, err := p.decryptFEK(meta.FEK)
@@ -438,13 +475,16 @@ func (p *Proxy) DownloadFile(pname string) (io.ReadCloser, error) {
 
 func (p *Proxy) DownloadRange(pname string, offset, length int64) (io.ReadCloser, error) {
 	pname = p.normalizePath(pname)
+
+	// Check if there's a memory placeholder (for Raidrive compatibility)
+	if p.pendingCache.Exists(pname) {
+		log.Printf("Proxy: Returning empty content for memory placeholder '%s'", pname)
+		return io.NopCloser(bytes.NewReader([]byte{})), nil
+	}
+
 	meta, err := p.meta.Get(pname)
 	if err != nil || meta == nil {
 		return nil, fmt.Errorf("file not found: %s", pname)
-	}
-
-	if meta.RemoteName == ".pending" {
-		return io.NopCloser(bytes.NewReader([]byte{})), nil
 	}
 
 	if meta.Size == 0 || offset >= meta.Size {

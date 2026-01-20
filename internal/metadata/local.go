@@ -99,7 +99,9 @@ func (s *LocalStorage) Get(p string) (*FileMeta, error) {
 
 	var meta FileMeta
 	if err := json.Unmarshal(data, &meta); err != nil {
-		return nil, err
+		// Log the error but return nil to allow directory listing to continue
+		log.Printf("LocalStorage: Failed to parse metadata file '%s': %v", local, err)
+		return nil, nil
 	}
 
 	// Name is already stored in the JSON, no need to set it

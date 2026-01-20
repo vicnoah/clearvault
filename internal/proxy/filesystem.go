@@ -69,6 +69,22 @@ func (fs *FileSystem) OpenFile(ctx context.Context, name string, flag int, perm 
 		}, nil
 	}
 
+	// Check if there's a memory placeholder (for Raidrive compatibility)
+	if fs.p.pendingCache.Exists(name) {
+		log.Printf("FS OpenFile: returning empty file for memory placeholder '%s'", name)
+		return &ProxyFile{
+			fs:   fs,
+			name: name,
+			meta: &metadata.FileMeta{
+				Name:       path.Base(name),
+				RemoteName: "", // Memory placeholder - no remote file
+				Size:       0,
+				IsDir:      false,
+				UpdatedAt:  time.Now(),
+			},
+		}, nil
+	}
+
 	meta, err := fs.p.GetFileMeta(name)
 	if err != nil || meta == nil {
 		log.Printf("FS OpenFile %s: not found", name)
@@ -104,6 +120,17 @@ func (fs *FileSystem) Stat(ctx context.Context, name string) (os.FileInfo, error
 	log.Printf("FS Stat: '%s'", name)
 	if name == "/" || name == "" || name == "." || name == "\\" {
 		return &FileInfo{name: "", isDir: true, modTime: time.Now()}, nil
+	}
+
+	// Check if there's a memory placeholder (for Raidrive compatibility)
+	if fs.p.pendingCache.Exists(name) {
+		log.Printf("FS Stat: returning 0-byte file info for memory placeholder '%s'", name)
+		return &FileInfo{
+			name:    path.Base(name),
+			size:    0,
+			isDir:   false,
+			modTime: time.Now(),
+		}, nil
 	}
 
 	meta, err := fs.p.GetFileMeta(name)

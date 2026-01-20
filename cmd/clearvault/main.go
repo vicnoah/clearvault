@@ -317,7 +317,7 @@ func handleServer(cfg *config.Config, meta metadata.Storage) {
 		pattern += "/"
 	}
 
-	server := dav.NewLocalServer(cfg.Server.BaseURL, fs, ls)
+	server := dav.NewLocalServer(cfg.Server.BaseURL, fs, ls, cfg.Server.Auth.User, cfg.Server.Auth.Pass)
 
 	log.Printf("Clearvault listening on %s at %s (webdav prefix: %s)", cfg.Server.Listen, pattern, cfg.Server.BaseURL)
 	http.Handle(pattern, server)

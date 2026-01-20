@@ -330,57 +330,142 @@ RaiDrive 在上传文件时采用两阶段策略：
 
 如果第一阶段后立即返回 404（文件不存在），RaiDrive 会进入**无限重试循环**。
 
-### 解决方案：临时占位元数据
+### 问题：文件系统占位符的局限性
+
+之前的实现使用文件系统存储 `.pending` 占位符：
 
 ```go
-// 第一阶段：0 字节上传
-if fileSize == 0 {
-    // 生成有效的随机 FEK 和 Salt
-    fek := GenerateRandomBytes(32)
-    salt := GenerateRandomBytes(12)
-    
-    // 保存临时元数据
-    meta := &FileMeta{
-        Path:       path,
-        RemoteName: ".pending",  // 特殊标记
-        Size:       0,
-        FEK:        Encrypt(fek), // 保存加密的 FEK
-        Salt:       salt,
-        // ...
-    }
-    return meta.Save()
+// 旧实现：创建 .pending 元数据文件
+meta := &metadata.FileMeta{
+    RemoteName: ".pending",
+    // ...
 }
-
-// 第二阶段：实际内容上传
-// 检查并替换临时元数据
-existingMeta, _ := GetMetadata(path)
-if existingMeta != nil && existingMeta.RemoteName == ".pending" {
-    log.Printf("Replacing temporary placeholder")
-}
-// 正常上传流程 (生成新的 FEK/Salt 并覆盖元数据)...
+return p.meta.Save(meta, pname)
 ```
 
-### 读取临时文件
+**问题**：
+- 需要创建和管理临时元数据文件（`.pending` 文件）
+- 文件系统操作有延迟，可能导致 PROPFIND 返回 404
+- 需要额外的清理逻辑
+- 可能产生文件系统垃圾
+
+### 解决方案：内存占位符
+
+使用内存中的 map 存储占位符标记，替代文件系统占位符：
 
 ```go
-func DownloadFile(path string) (io.ReadCloser, error) {
-    meta := GetMetadata(path)
-    
-    // 如果是临时占位文件，返回空内容
-    if meta.RemoteName == ".pending" {
-        return io.NopCloser(bytes.NewReader([]byte{})), nil
-    }
-    
-    // 正常下载流程...
+// 内存占位符结构
+type PendingEntry struct {
+    createdAt time.Time
+    expiresAt time.Time
+}
+
+type PendingFileCache struct {
+    data map[string]*PendingEntry
+    mu   sync.RWMutex
 }
 ```
+
+#### 工作流程
+
+1. **Raidrive 上传 0 字节文件** → `SavePlaceholder()` 在内存中设置占位符（TTL 30 秒）
+2. **Raidrive 读取文件** → `OpenFile()` 检查内存占位符，返回空内容
+3. **Raidrive 上传实际内容** → `UploadFile()` 删除内存占位符，创建真实元数据
+4. **后台清理** → 每 30 秒自动清理过期占位符
+
+#### 代码实现
+
+**SavePlaceholder()**：
+```go
+func (p *Proxy) SavePlaceholder(pname string) error {
+    pname = p.normalizePath(pname)
+    log.Printf("Proxy: Saving memory placeholder for 0-byte file '%s'", pname)
+
+    // 使用内存占位符，TTL 30 秒
+    p.pendingCache.Add(pname, 30*time.Second)
+    return nil
+}
+```
+
+**OpenFile()**：
+```go
+// 检查内存占位符
+if fs.p.pendingCache.Exists(name) {
+    log.Printf("FS OpenFile: returning empty file for memory placeholder '%s'", name)
+    return &ProxyFile{
+        fs:   fs,
+        name: name,
+        meta: &metadata.FileMeta{
+            Name:       path.Base(name),
+            RemoteName: ".pending",
+            Size:       0,
+            IsDir:      false,
+            UpdatedAt:  time.Now(),
+        },
+    }, nil
+}
+```
+
+**Stat()**：
+```go
+// 检查内存占位符
+if fs.p.pendingCache.Exists(name) {
+    log.Printf("FS Stat: returning 0-byte file info for memory placeholder '%s'", name)
+    return &FileInfo{
+        name:    path.Base(name),
+        size:    0,
+        isDir:   false,
+        modTime: time.Now(),
+    }, nil
+}
+```
+
+**UploadFile()**：
+```go
+// 检查并删除内存占位符
+if p.pendingCache.Exists(pname) {
+    log.Printf("Proxy: Replacing memory placeholder with real file for '%s'", pname)
+    p.pendingCache.Remove(pname)
+}
+```
+
+#### 过期清理机制
+
+后台协程定期清理过期的占位符：
+
+```go
+func (c *PendingFileCache) cleanup() {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        c.mu.Lock()
+        now := time.Now()
+        for path, entry := range c.data {
+            if now.After(entry.expiresAt) {
+                delete(c.data, path)
+            }
+        }
+        c.mu.Unlock()
+    }
+}
+```
+
+### 优势
+
+- ✅ **无需文件系统操作**：不创建 `.pending` 文件，避免文件系统延迟
+- ✅ **立即响应**：内存操作，无 I/O 延迟
+- ✅ **自动过期清理**：通过后台协程自动清理，无需手动管理
+- ✅ **架构简单**：不引入复杂的文件系统逻辑
+- ✅ **无垃圾文件**：不会在文件系统中留下临时文件
 
 ### 效果
 
-- ✅ **兼容性增强**：即使是占位文件也拥有完整的元数据结构（FEK/Salt），防止客户端 PROPFIND 或尝试读取时出错。
+- ✅ **兼容性增强**：Raidrive 可以正常进行两阶段上传
 - ✅ 避免 RaiDrive 无限重试
 - ✅ 不产生远端垃圾文件
-- ✅ 临时元数据自动被真实文件覆盖
+- ✅ 内存占位符自动过期清理
+- ✅ 性能提升：无文件系统 I/O 开销
 
 ## Windows 文件锁定处理
 

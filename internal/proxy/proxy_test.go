@@ -64,25 +64,50 @@ func TestZeroByteFileUpload(t *testing.T) {
 		t.Fatalf("NewProxy failed: %v", err)
 	}
 
-	// 1. Upload 0-byte file (RaiDrive Phase 1)
-	err = p.UploadFile("/test.txt", bytes.NewReader([]byte{}), 0)
+	// 1. Save memory placeholder (simulating Raidrive Phase 1)
+	err = p.SavePlaceholder("/test.txt")
 	if err != nil {
-		t.Fatalf("UploadFile (0-byte) failed: %v", err)
+		t.Fatalf("SavePlaceholder failed: %v", err)
 	}
 
-	// 2. Verify metadata
+	// 2. Verify memory placeholder exists
+	if !p.pendingCache.Exists("/test.txt") {
+		t.Error("Expected memory placeholder to exist")
+	}
+
+	// 3. Verify no metadata is created for placeholder
 	m, err := meta.Get("/test.txt")
 	if err != nil {
 		t.Fatalf("Failed to get metadata: %v", err)
 	}
-	if m.RemoteName == "" || m.RemoteName == ".pending" {
-		t.Errorf("Expected RemoteName to be set, got '%s'", m.RemoteName)
-	}
-	if m.Size != 0 {
-		t.Errorf("Expected Size to be 0, got %d", m.Size)
+	if m != nil {
+		t.Errorf("Expected no metadata for memory placeholder, got %+v", m)
 	}
 
-	// 3. Verify Download returns empty content
+	// 4. Upload actual content (simulating Raidrive Phase 2)
+	err = p.UploadFile("/test.txt", bytes.NewReader([]byte("test content")), 12)
+	if err != nil {
+		t.Fatalf("UploadFile failed: %v", err)
+	}
+
+	// 5. Verify memory placeholder is removed
+	if p.pendingCache.Exists("/test.txt") {
+		t.Error("Expected memory placeholder to be removed after upload")
+	}
+
+	// 6. Verify metadata is created
+	m, err = meta.Get("/test.txt")
+	if err != nil {
+		t.Fatalf("Failed to get metadata: %v", err)
+	}
+	if m == nil {
+		t.Fatal("Expected metadata to be created")
+	}
+	if m.Size != 12 {
+		t.Errorf("Expected Size to be 12, got %d", m.Size)
+	}
+
+	// 7. Verify Download returns actual content
 	rc, err := p.DownloadFile("/test.txt")
 	if err != nil {
 		t.Fatalf("DownloadFile failed: %v", err)
@@ -93,8 +118,80 @@ func TestZeroByteFileUpload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to read downloaded content: %v", err)
 	}
-	if len(content) != 0 {
-		t.Errorf("Expected 0 bytes content, got %d", len(content))
+	if string(content) != "test content" {
+		t.Errorf("Expected 'test content', got '%s'", string(content))
+	}
+}
+
+func TestMemoryPlaceholderExpiration(t *testing.T) {
+	metaDir := "./test_placeholder_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := &mockRemoteStorage{}
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	// Add a placeholder with very short TTL (100ms)
+	p.pendingCache.Add("/test.txt", 100*time.Millisecond)
+
+	// Verify placeholder exists immediately
+	if !p.pendingCache.Exists("/test.txt") {
+		t.Error("Expected memory placeholder to exist immediately after creation")
+	}
+
+	// Wait for expiration
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify placeholder has expired
+	if p.pendingCache.Exists("/test.txt") {
+		t.Error("Expected memory placeholder to be expired after TTL")
+	}
+}
+
+func TestMemoryPlaceholderManualRemoval(t *testing.T) {
+	metaDir := "./test_placeholder_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := &mockRemoteStorage{}
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	// Add a placeholder
+	p.pendingCache.Add("/test.txt", 30*time.Second)
+
+	// Verify placeholder exists
+	if !p.pendingCache.Exists("/test.txt") {
+		t.Error("Expected memory placeholder to exist")
+	}
+
+	// Manually remove placeholder
+	p.pendingCache.Remove("/test.txt")
+
+	// Verify placeholder is removed
+	if p.pendingCache.Exists("/test.txt") {
+		t.Error("Expected memory placeholder to be removed")
 	}
 }
 

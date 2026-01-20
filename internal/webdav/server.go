@@ -9,14 +9,17 @@ import (
 )
 
 type LocalServer struct {
-	handler *webdav.Handler
+	handler    *webdav.Handler
+	authUser   string
+	authPass   string
+	authEnable bool
 }
 
 type SizeSetter interface {
 	SetPendingSize(name string, size int64)
 }
 
-func NewLocalServer(prefix string, fs webdav.FileSystem, ls webdav.LockSystem) *LocalServer {
+func NewLocalServer(prefix string, fs webdav.FileSystem, ls webdav.LockSystem, authUser, authPass string) *LocalServer {
 	return &LocalServer{
 		handler: &webdav.Handler{
 			Prefix:     prefix,
@@ -28,6 +31,9 @@ func NewLocalServer(prefix string, fs webdav.FileSystem, ls webdav.LockSystem) *
 				}
 			},
 		},
+		authUser:   authUser,
+		authPass:   authPass,
+		authEnable: authUser != "" && authPass != "",
 	}
 }
 
@@ -75,7 +81,9 @@ func (sw *statusWriter) WriteHeader(status int) {
 	sw.ResponseWriter.WriteHeader(status)
 }
 
-func (s *LocalServer) authenticate(user, pass string) bool {
-	// TODO: Load from config
-	return true
+func (s *LocalServer) authenticate(username, password string) bool {
+	if !s.authEnable {
+		return true
+	}
+	return username == s.authUser && password == s.authPass
 }
