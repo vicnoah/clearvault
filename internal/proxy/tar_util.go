@@ -171,8 +171,21 @@ func (p *Proxy) addFileToTar(
 	dirPath := filepath.Dir(virtualPath)
 	meta.Path = dirPath
 
+	// Copy meta to avoid modifying the original one if it's reused elsewhere
+	metaCopy := *meta
+
+	// Decrypt FEK with current Master Key to store the raw FEK in the share package
+	// The share package itself is encrypted with a session key (aesKey), so this is safe.
+	if len(metaCopy.FEK) > 0 {
+		rawFEK, err := p.decryptFEK(metaCopy.FEK)
+		if err != nil {
+			return 0, fmt.Errorf("failed to decrypt FEK for export: %w", err)
+		}
+		metaCopy.FEK = rawFEK
+	}
+
 	// 2. 序列化元数据
-	metaJSON, err := json.MarshalIndent(meta, "", "  ")
+	metaJSON, err := json.MarshalIndent(metaCopy, "", "  ")
 	if err != nil {
 		return 0, err
 	}
@@ -370,6 +383,10 @@ func (p *Proxy) ExtractTarPackage(
 
 		// 保存到本地存储（使用 path + name 构建虚拟路径）
 		virtualPath := filepath.Join(meta.Path, meta.Name)
+
+		// 导入完成后，清除 Path 字段（本地存储不需要此字段）
+		meta.Path = ""
+
 		if err := p.meta.Save(&meta, virtualPath); err != nil {
 			return nil, fmt.Errorf("failed to save metadata for %s: %w", virtualPath, err)
 		}

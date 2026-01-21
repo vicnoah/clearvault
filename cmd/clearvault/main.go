@@ -13,6 +13,7 @@ import (
 	"clearvault/internal/proxy"
 	"clearvault/internal/remote"
 	dav "clearvault/internal/webdav"
+
 	"golang.org/x/net/webdav"
 )
 
@@ -235,6 +236,7 @@ func handleEncrypt(cmd *flag.FlagSet, cfg *config.Config, meta metadata.Storage,
 	}
 
 	log.Printf("✅ Local encryption completed: %s -> %s", *encryptInput, *encryptOutput)
+	log.Println("⚠️  Note: Encrypted files in output directory must be uploaded to your configured remote storage (e.g., S3, WebDAV) for 'server' command to access them.")
 }
 
 func handleExport(cmd *flag.FlagSet, cfg *config.Config, meta metadata.Storage, exportPaths, exportOutput, exportShareKey *string) {
