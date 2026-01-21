@@ -143,11 +143,11 @@ sudo mount -t davfs http://127.0.0.1:8080/dav/ /mnt/clearvault
 - `-out`：加密后文件输出目录，目录中只包含随机文件名的密文文件
 - `--config`：配置文件路径（默认 "config.yaml"）
 
-注意：
+**⚠️ 重要提示：**
 
-- 导出完成后，`storage.metadata_path` 下会写入这批文件的元数据，包含原始路径和密钥信息
-- `-out` 目录中的文件名是随机的 `remoteName`，可以整体上传到目标 WebDAV 存储中的任意目录
-- 只要之后在服务器端使用同一份 `config.yaml`（尤其是相同的 `master_key` 和 `metadata_path`）启动 ClearVault，即可通过 WebDAV 接口访问这些已上传的加密文件
+- 导出完成后，`storage.metadata_path` 下会写入这批文件的元数据，包含原始路径和密钥信息。
+- **必须手动上传文件**：`-out` 目录中的加密文件（随机文件名）**必须**手动上传到你配置的远端 WebDAV 存储路径中。如果未上传，ClearVault 服务端将无法找到文件数据。
+- 只要之后在服务器端使用同一份 `config.yaml`（尤其是相同的 `master_key` 和 `metadata_path`）启动 ClearVault，即可通过 WebDAV 接口访问这些已上传的加密文件。
 
 ## 🛠️ 简单分享功能
 
