@@ -5,12 +5,13 @@ import (
 	"strings"
 
 	"clearvault/internal/config"
+	"clearvault/internal/remote/local"
 	"clearvault/internal/remote/s3"
 	"clearvault/internal/remote/webdav"
 )
 
 // NewRemoteStorage 根据配置创建远程存储客户端
-// 支持多种存储后端：WebDAV、S3、MinIO、Cloudflare R2 等
+// 支持多种存储后端：WebDAV、S3、MinIO、Cloudflare R2、Local Filesystem 等
 func NewRemoteStorage(cfg config.RemoteConfig) (RemoteStorage, error) {
 	// 确定存储类型（默认为 WebDAV 以保持向后兼容）
 	storageType := strings.ToLower(strings.TrimSpace(cfg.Type))
@@ -23,8 +24,10 @@ func NewRemoteStorage(cfg config.RemoteConfig) (RemoteStorage, error) {
 		return newWebDAVClient(cfg)
 	case "s3", "minio", "r2":
 		return newS3Client(cfg)
+	case "local", "filesystem", "fs":
+		return newLocalClient(cfg)
 	default:
-		return nil, fmt.Errorf("unsupported storage type: %s (supported: webdav, s3)", storageType)
+		return nil, fmt.Errorf("unsupported storage type: %s (supported: webdav, s3, local)", storageType)
 	}
 }
 
@@ -70,4 +73,12 @@ func newS3Client(cfg config.RemoteConfig) (RemoteStorage, error) {
 		SecretKey: cfg.SecretKey,
 		UseSSL:    cfg.UseSSL,
 	})
+}
+
+// newLocalClient 创建本地文件系统客户端
+func newLocalClient(cfg config.RemoteConfig) (RemoteStorage, error) {
+	if cfg.LocalPath == "" {
+		return nil, fmt.Errorf("local: local_path is required")
+	}
+	return local.NewClient(cfg.LocalPath)
 }

@@ -1,0 +1,30 @@
+[
+    {
+        "stepTitle": "维护提醒",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "<strong>重要提示</strong>：修改配置后服务将自动重启。请确保您已备份元数据目录，并妥善保管主密码。"
+            },
+            {
+                "type": "tips",
+                "helpText": "挂载相关设置请在 Web 管理面板中进行操作。"
+            }
+        ]
+    },
+    {
+        "stepTitle": "访问密码",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "如需修改访问密码，请在下方输入新密码。留空表示不修改。"
+            },
+            {
+                "type": "password",
+                "field": "wizard_access_token",
+                "label": "新访问密码（留空不修改）",
+                "initValue": ""
+            }
+        ]
+    }
+]

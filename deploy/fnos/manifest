@@ -1,0 +1,11 @@
+appname               = ClearVault.Native.App
+version               = 1.20.1
+display_name          = ClearVault
+desc                  = ClearVault 是一款面向 NAS 的加密存储网关：将 WebDAV / S3 / 本地目录作为远端存储，并提供 WebDAV 入口与本地挂载（FUSE），在不改变日常使用习惯的前提下实现端到端加密与统一访问。
+source                = thirdparty
+maintainer            = vicnoah
+distributor           = vicnoah
+desktop_uidir         = ui
+desktop_applaunchname = ClearVault.Native.App.Application
+service_port          = 11339
+checkport             = true

@@ -1,0 +1,27 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+
+log_msg() {
+    # LOG_FILE might be deleted if we delete TRIM_PKGVAR, so check first or log to a temp location?
+    # fnOS logs might capture stdout/stderr.
+    if [ -d "${TRIM_PKGVAR}" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> ${LOG_FILE}
+    fi
+}
+
+log_msg "[Uninstall] Callback started. Action: ${wizard_data_action}"
+
+if [ "${wizard_data_action}" = "delete" ]; then
+    log_msg "[Uninstall] User requested DATA DELETION."
+    if [ -n "${TRIM_PKGVAR}" ] && [ "${TRIM_PKGVAR}" != "/" ]; then
+        log_msg "[Uninstall] Removing ${TRIM_PKGVAR}..."
+        rm -rf "${TRIM_PKGVAR}"
+    else
+        log_msg "[Uninstall] Error: TRIM_PKGVAR is empty or root, skipping deletion for safety."
+    fi
+else
+    log_msg "[Uninstall] User requested to KEEP data. TRIM_PKGVAR preserved."
+fi
+
+exit 0

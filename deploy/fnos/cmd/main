@@ -1,0 +1,214 @@
+#!/bin/bash
+
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+PID_FILE="${TRIM_PKGVAR}/app.pid"
+MOUNT_PID_FILE="${TRIM_PKGVAR}/mount.pid"
+MOUNT_JSON_FILE="${TRIM_PKGVAR}/mount.json"
+MOUNT_CONFIG_FILE="${TRIM_PKGVAR}/mount.config.json"
+# CONFIG_FILE will be defined in start_process based on TRIM_PKGVAR
+
+# Command to start ClearVault
+# CMD will be defined in start_process
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> ${LOG_FILE}
+}
+
+check_process() {
+    local pid=$1
+    if kill -0 "${pid}" 2>/dev/null; then
+        return 0  # process exist
+    else
+        return 1  # process not exist
+    fi
+}
+
+status() {
+    if [ -f "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+        if check_process "${pid}"; then
+            return 0
+        else
+            # Process is not running but pidfile exists - clean it up
+            rm -f "${PID_FILE}"
+        fi    
+    fi
+    return 1
+}
+
+start_process() {
+    if status; then
+        return 0
+    fi
+
+    log_msg "Starting ClearVault ..."
+    log_msg "Debug: TRIM_APPDEST=${TRIM_APPDEST}"
+    
+    # Export ACCESSIBLE_PATHS for the API
+    export ACCESSIBLE_PATHS="${TRIM_DATA_ACCESSIBLE_PATHS}"
+    
+    # Use TRIM_PKGVAR for persistent config
+    CONFIG_FILE="${TRIM_PKGVAR}/config.yaml"
+    METADATA_PATH="${TRIM_PKGVAR}/metadata"
+    mkdir -p "${METADATA_PATH}"
+    CACHE_PATH="${TRIM_PKGVAR}/cache"
+    mkdir -p "${CACHE_PATH}"
+    
+    # Pass metadata path via environment variable to override config
+    export STORAGE_METADATA_PATH="${METADATA_PATH}"
+    export STORAGE_CACHE_DIR="${CACHE_PATH}"
+    
+    # Update CMD to point to the correct config location
+    # Explicitly disable auto-init to wait for Web UI setup
+    CMD="${TRIM_APPDEST}/server/clearvault server --config ${CONFIG_FILE} --init=false --ui ${TRIM_APPDEST}/ui"
+
+    # Config should be prepared during install/config callbacks.
+    # If it is missing here, we still fail fast (web UI cannot work without a config file path).
+    if [ ! -f "${CONFIG_FILE}" ]; then
+        log_msg "Error: Config file not found at ${CONFIG_FILE}. It should be created in install_callback."
+        return 1
+    fi
+
+    # Ensure binary is executable
+    chmod +x "${TRIM_APPDEST}/server/clearvault"
+
+    # Run cmd
+    nohup ${CMD} >> ${LOG_FILE} 2>&1 &
+    
+    # Write pid to pidfile
+    printf "%s" "$!" > ${PID_FILE}
+
+    if [ -f "${MOUNT_CONFIG_FILE}" ]; then
+        auto=$(sed -n 's/.*"auto"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' "${MOUNT_CONFIG_FILE}" | head -n 1)
+        mountpoint=$(sed -n 's/.*"mountpoint"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${MOUNT_CONFIG_FILE}" | head -n 1)
+        delay=$(sed -n 's/.*"delaySeconds"[[:space:]]*:[[:space:]]*\([0-9]*\).*/\1/p' "${MOUNT_CONFIG_FILE}" | head -n 1)
+        if [ -z "${delay}" ]; then
+            delay=5
+        fi
+        log_msg "Mount config: auto=${auto}, mountpoint=${mountpoint}, delaySeconds=${delay}"
+        if [ "${auto}" = "true" ] && [ -n "${mountpoint}" ]; then
+            if [ -f "${MOUNT_PID_FILE}" ]; then
+                mpid=$(head -n 1 "${MOUNT_PID_FILE}" | tr -d '[:space:]')
+                if [ -n "${mpid}" ] && check_process "${mpid}"; then
+                    log_msg "Auto-mount skipped: existing mount process is running (pid=${mpid})"
+                    return 0
+                fi
+                rm -f "${MOUNT_PID_FILE}" "${MOUNT_JSON_FILE}"
+            fi
+            log_msg "Scheduling FUSE mount in ${delay}s at ${mountpoint} ..."
+            nohup sh -c "sleep ${delay}; exec \"${TRIM_APPDEST}/server/clearvault\" mount --config \"${CONFIG_FILE}\" --mountpoint \"${mountpoint}\"" >> ${LOG_FILE} 2>&1 &
+            printf "%s" "$!" > ${MOUNT_PID_FILE}
+            printf '{"pid":%s,"mountpoint":"%s"}' "$!" "${mountpoint}" > ${MOUNT_JSON_FILE}
+        else
+            if [ "${auto}" != "true" ]; then
+                log_msg "Auto-mount disabled (auto=${auto})"
+            fi
+            if [ -z "${mountpoint}" ]; then
+                log_msg "Auto-mount skipped: mountpoint is empty"
+            fi
+        fi
+    else
+        log_msg "Mount config not found: ${MOUNT_CONFIG_FILE}"
+    fi
+    return 0
+}
+
+stop_process() {
+    log_msg "Stopping ClearVault ..."
+
+    if [ -f "${MOUNT_JSON_FILE}" ]; then
+        mountpoint=$(sed -n 's/.*"mountpoint"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${MOUNT_JSON_FILE}" | head -n 1)
+        if [ -n "${mountpoint}" ]; then
+            log_msg "Unmounting ${mountpoint}..."
+            fusermount -u "${mountpoint}" >> ${LOG_FILE} 2>&1
+        fi
+    fi
+
+    if [ -r "${MOUNT_PID_FILE}" ]; then
+        mpid=$(head -n 1 "${MOUNT_PID_FILE}" | tr -d '[:space:]')
+        log_msg "mount_pid=${mpid}"
+        if [ -n "${mpid}" ] && check_process "${mpid}"; then
+            log_msg "send TERM signal to mount PID:${mpid}..."
+            kill -TERM ${mpid} >> ${LOG_FILE} 2>&1
+            local mcount=0
+            while check_process "${mpid}" && [ $mcount -lt 10 ]; do
+                sleep 1
+                mcount=$((mcount + 1))
+            done
+            if check_process "${mpid}"; then
+                log_msg "send KILL signal to mount PID:${mpid}..."
+                kill -KILL "${mpid}" >> ${LOG_FILE} 2>&1
+                sleep 1
+            fi
+        fi
+        
+        # Cleanup: Ensure mount point is removed if process was killed but mount remains (e.g. busy)
+        if [ -n "${mountpoint}" ]; then
+             log_msg "Ensure unmount cleanup for ${mountpoint}..."
+             fusermount -u -z "${mountpoint}" >> ${LOG_FILE} 2>&1
+        fi
+        
+        rm -f "${MOUNT_PID_FILE}" "${MOUNT_JSON_FILE}"
+    fi
+
+    if [ -r "${PID_FILE}" ]; then
+        pid=$(head -n 1 "${PID_FILE}" | tr -d '[:space:]')
+        
+        log_msg "pid=${pid}"
+        if ! check_process "${pid}"; then
+            rm -f "${PID_FILE}"
+            return
+        fi
+
+        log_msg "send TERM signal to PID:${pid}..."
+        kill -TERM ${pid} >> ${LOG_FILE} 2>&1
+
+        local count=0
+        while check_process "${pid}" && [ $count -lt 10 ]; do
+            sleep 1
+            count=$((count + 1))
+        done
+
+        if check_process "${pid}"; then
+            log_msg "send KILL signal to PID:${pid}..."
+            kill -KILL "${pid}"
+            sleep 1
+            rm -f "${PID_FILE}"
+        else
+            log_msg "process killed... "
+            rm -f "${PID_FILE}"
+        fi
+    fi
+    return 0
+}
+
+case $1 in
+start)
+    start_process
+    ;;
+stop)
+    stop_process
+    ;;
+status)
+    if status; then 
+        exit 0
+    else 
+        exit 3
+    fi
+    ;;
+config)
+    # Use TRIM_PKGVAR for persistent config
+    CONFIG_FILE="${TRIM_PKGVAR}/config.yaml"
+    # Ensure binary is executable
+    chmod +x "${TRIM_APPDEST}/server/clearvault"
+    
+    # Exec config command
+    # shift to remove "config"
+    shift
+    # Pass --config before subcommand to match Go's extractConfigPath logic
+    exec "${TRIM_APPDEST}/server/clearvault" config --config "${CONFIG_FILE}" "$@"
+    ;;
+*)
+    exit 1
+    ;;
+esac

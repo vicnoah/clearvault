@@ -1,0 +1,23 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> ${LOG_FILE}
+}
+
+log_msg "[Config] Configuration callback started."
+
+# Handle access token modification
+if [ -n "${wizard_access_token}" ]; then
+    log_msg "[Config] Updating access token..."
+    "${CMD_DIR}/main" config set-token "${wizard_access_token}"
+fi
+
+log_msg "[Config] Configuration changed, restarting service..."
+
+# Restart service to apply changes (e.g. TRIM_DATA_ACCESSIBLE_PATHS and mount config)
+"${CMD_DIR}/main" stop
+"${CMD_DIR}/main" start
+
+exit 0

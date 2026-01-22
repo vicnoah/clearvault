@@ -1,36 +1,65 @@
 project_name: clearvault
 
 before:
-  hooks:
-    - go mod tidy
+    hooks:
+        - go mod tidy
 
 builds:
-  - id: clearvault
-    main: ./cmd/clearvault
-    env:
-      - CGO_ENABLED=0
-    goos:
-      - linux
-      - windows
-      - darwin
-    goarch:
-      - amd64
-      - arm64
-    ldflags:
-      - -s -w
+    - id: clearvault
+      main: ./cmd/clearvault
+      env:
+          - CGO_ENABLED=0
+      goos:
+          - linux
+          - windows
+          - darwin
+      goarch:
+          - amd64
+          - arm64
+      ldflags:
+          - -s -w
+
+    - id: clearvault-fuse
+      main: ./cmd/clearvault
+      env:
+          - CGO_ENABLED=1
+      tags:
+          - fuse
+      goos:
+          - linux
+      goarch:
+          - amd64
+          - arm64
+      ldflags:
+          - -s -w
 
 archives:
-  - id: archive
-    builds:
-      - clearvault
-    format_overrides:
-      - goos: windows
-        format: zip
-    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    - id: archive
+      builds:
+          - clearvault
+          - clearvault-fuse
+      format_overrides:
+          - goos: windows
+            format: zip
+      name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if eq .BuildID "clearvault-fuse" }}_fuse{{ end }}'
+
+dockers:
+    - image_templates:
+          - "ghcr.io/vicnoah/clearvault:{{ .Version }}"
+          - "ghcr.io/vicnoah/clearvault:latest"
+      builds:
+          - clearvault
+      dockerfile: Dockerfile
+
+    - image_templates:
+          - "ghcr.io/wwg/clearvault:{{ .Version }}-fuse"
+          - "ghcr.io/wwg/clearvault:latest-fuse"
+      builds:
+          - clearvault-fuse
+      dockerfile: Dockerfile.fuse
 
 checksum:
-  name_template: "checksums.txt"
+    name_template: "checksums.txt"
 
 changelog:
-  use: git
-
+    use: git

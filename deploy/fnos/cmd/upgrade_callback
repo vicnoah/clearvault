@@ -1,0 +1,35 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+MARKER_FILE="${TRIM_PKGVAR}/.upgrade_restore_state"
+MOUNT_CONFIG_FILE="${TRIM_PKGVAR}/mount.config.json"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Upgrade completed." >> ${LOG_FILE}
+
+# Handle access token modification (if set in the update wizard)
+if [ -n "${wizard_access_token}" ]; then
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Updating access token..." >> ${LOG_FILE}
+    "${CMD_DIR}/main" config set-token "${wizard_access_token}"
+fi
+
+STARTED="false"
+if [ -f "${MARKER_FILE}" ]; then
+    STATE=$(cat "${MARKER_FILE}")
+    if [ "${STATE}" = "running" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Restoring service state (starting)..." >> ${LOG_FILE}
+        "${CMD_DIR}/main" start
+        STARTED="true"
+    fi
+    rm -f "${MARKER_FILE}"
+fi
+
+if [ "${STARTED}" != "true" ] && [ -f "${MOUNT_CONFIG_FILE}" ]; then
+    auto=$(sed -n 's/.*"auto"[[:space:]]*:[[:space:]]*\(true\|false\).*/\1/p' "${MOUNT_CONFIG_FILE}" | head -n 1)
+    mountpoint=$(sed -n 's/.*"mountpoint"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${MOUNT_CONFIG_FILE}" | head -n 1)
+    if [ "${auto}" = "true" ] && [ -n "${mountpoint}" ]; then
+        echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Auto-mount is enabled, starting service for mount restore..." >> ${LOG_FILE}
+        "${CMD_DIR}/main" start
+    fi
+fi
+
+exit 0

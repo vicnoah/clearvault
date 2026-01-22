@@ -1,0 +1,37 @@
+[
+    {
+        "stepTitle": "卸载确认",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "您即将卸载 ClearVault。请选择如何处理应用数据："
+            },
+            {
+                "type": "radio",
+                "field": "wizard_data_action",
+                "label": "数据保留选项",
+                "initValue": "keep",
+                "options": [
+                    {
+                        "label": "保留数据 (推荐) - 保留配置和元数据",
+                        "value": "keep"
+                    },
+                    {
+                        "label": "删除所有数据 - 警告：元数据将被永久删除！",
+                        "value": "delete"
+                    }
+                ],
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请选择数据保留选项"
+                    }
+                ]
+            },
+            {
+                "type": "tips",
+                "helpText": "<strong>严重警告：</strong>如果您选择了“删除所有数据”，存储加密密钥的元数据目录将被删除。除非您有额外的备份，否则云端的加密数据将永远无法解密。"
+            }
+        ]
+    }
+]

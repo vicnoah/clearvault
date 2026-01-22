@@ -66,6 +66,11 @@
    - 使用本地文件系统（JSON 格式）
    - 路径到远程文件名的映射
 
+5. **Remote Storage Backend** (`internal/remote`)
+   - **WebDAV** (`internal/remote/webdav`)：标准 WebDAV 协议支持
+   - **S3** (`internal/remote/s3`)：AWS S3 及兼容存储支持
+   - **Local** (`internal/remote/local`)：本地文件系统支持（适用于 NAS 挂载等场景）
+
 ## 加密系统
 
 ### 加密算法

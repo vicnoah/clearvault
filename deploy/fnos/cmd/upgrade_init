@@ -1,0 +1,20 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+MARKER_FILE="${TRIM_PKGVAR}/.upgrade_restore_state"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Preparing for upgrade..." >> ${LOG_FILE}
+
+# Check if running
+if "${CMD_DIR}/main" status; then
+    echo "running" > "${MARKER_FILE}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Service is running, marking for restart." >> ${LOG_FILE}
+else
+    rm -f "${MARKER_FILE}"
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - [Upgrade] Service is not running." >> ${LOG_FILE}
+fi
+
+# Stop service (main script now handles fusermount -u)
+"${CMD_DIR}/main" stop
+
+exit 0

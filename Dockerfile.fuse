@@ -1,0 +1,40 @@
+# Build stage
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /build
+
+# Install build dependencies
+# fuse-dev (or equivalent headers) are needed for CGO build of FUSE
+RUN apk add --no-cache git build-base fuse3-dev
+
+# Copy go mod files
+COPY go.mod go.sum ./
+RUN go mod download
+
+# Copy source code
+COPY . .
+
+# Build the application with FUSE support
+RUN CGO_ENABLED=1 GOOS=linux go build -tags fuse -a -installsuffix cgo -o clearvault ./cmd/clearvault
+
+# Runtime stage
+FROM alpine:latest
+
+WORKDIR /app
+
+# Install ca-certificates and FUSE runtime
+# fuse3 is typically needed
+RUN apk --no-cache add ca-certificates tzdata fuse3
+
+# Copy binary from builder
+COPY --from=builder /build/clearvault .
+
+# Create storage directory
+RUN mkdir -p /app/storage/metadata
+
+# Expose port
+EXPOSE 8080
+
+# Run the application
+ENTRYPOINT ["./clearvault"]
+CMD ["server", "--config", "/app/config.yaml"]

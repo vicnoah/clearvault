@@ -3,6 +3,7 @@ package proxy
 import (
 	"crypto/rand"
 	"crypto/rsa"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"testing"
@@ -53,10 +54,24 @@ func TestCreateTarPackage(t *testing.T) {
 		RemoteName: "abc123",
 		IsDir:      false,
 		Size:       1024,
-		FEK:        fek,
+		FEK:        nil,
 		Salt:       salt,
 		Path:       "/",
 	}
+
+	masterKeyRaw := make([]byte, 32)
+	if _, err := rand.Read(masterKeyRaw); err != nil {
+		t.Fatalf("Failed to generate master key: %v", err)
+	}
+	p, err := NewProxy(metaStorage, nil, base64.StdEncoding.EncodeToString(masterKeyRaw))
+	if err != nil {
+		t.Fatalf("Failed to initialize proxy: %v", err)
+	}
+	encryptedFEK, err := p.encryptFEK(fek)
+	if err != nil {
+		t.Fatalf("Failed to encrypt FEK: %v", err)
+	}
+	testMeta.FEK = encryptedFEK
 
 	// 保存元数据
 	err = metaStorage.Save(testMeta, "/test.txt")
@@ -65,8 +80,7 @@ func TestCreateTarPackage(t *testing.T) {
 	}
 
 	// 创建 tar 包
-	proxy := &Proxy{meta: metaStorage}
-	tarPath, err := proxy.CreateTarPackage(
+	tarPath, err := p.CreateTarPackage(
 		[]string{"/test.txt"},
 		tempDir,
 		priv,
@@ -143,25 +157,27 @@ func TestExtractTarPackage(t *testing.T) {
 		RemoteName: "abc123",
 		IsDir:      false,
 		Size:       1024,
-		FEK:        fek,
+		FEK:        nil,
 		Salt:       salt,
 		Path:       "/",
 	}
 
-	// 保存元数据
+	masterKey := make([]byte, 32)
+	if _, err := rand.Read(masterKey); err != nil {
+		t.Fatalf("Failed to generate master key: %v", err)
+	}
+	proxy := &Proxy{meta: metaStorage, masterKey: masterKey, pendingCache: NewPendingFileCache()}
+	encryptedFEK, err := proxy.encryptFEK(fek)
+	if err != nil {
+		t.Fatalf("Failed to encrypt FEK: %v", err)
+	}
+	testMeta.FEK = encryptedFEK
+
 	err = metaStorage.Save(testMeta, "/test.txt")
 	if err != nil {
 		t.Fatalf("Failed to save metadata: %v", err)
 	}
 
-	// 创建主密钥
-	masterKey := make([]byte, 32)
-	if _, err := rand.Read(masterKey); err != nil {
-		t.Fatalf("Failed to generate master key: %v", err)
-	}
-
-	// 创建 tar 包
-	proxy := &Proxy{meta: metaStorage, masterKey: masterKey}
 	tarPath, err := proxy.CreateTarPackage(
 		[]string{"/test.txt"},
 		tempDir,

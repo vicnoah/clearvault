@@ -96,9 +96,12 @@ func TestLoadConfigNoFileNoKey(t *testing.T) {
 	// Clear MASTER_KEY if set in environment
 	os.Unsetenv("MASTER_KEY")
 
-	// Load config should fail
-	_, err := LoadConfig(configPath)
-	if err == nil {
-		t.Fatal("Expected LoadConfig to fail when no config file and no MASTER_KEY env var are present")
+	// Load config should succeed but remain uninitialized
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig failed: %v", err)
+	}
+	if cfg.Security.MasterKey != "" {
+		t.Fatalf("Expected Security.MasterKey to be empty when no file and no env var, got %q", cfg.Security.MasterKey)
 	}
 }

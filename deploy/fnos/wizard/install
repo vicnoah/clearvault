@@ -1,0 +1,47 @@
+[
+    {
+        "stepTitle": "欢迎使用 ClearVault",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "ClearVault 是一款安全的云存储加密工具。在开始使用之前，请务必阅读以下重要注意事项。"
+            },
+            {
+                "type": "tips",
+                "helpText": "<strong>⚠️ 核心安全警告：主密码与元数据</strong><br>1. <strong>主密码初始化</strong>：安装完成后，首次访问 Web 界面时，系统会要求您设置主密码。此密码用于保护数据密钥，<strong>无法重置</strong>。请务必牢记！<br>2. <strong>元数据备份</strong>：所有加密文件的结构和密钥都存储在元数据目录中。<strong>一旦丢失元数据，所有云端加密数据将无法解密且永久丢失</strong>。请定期备份元数据目录（默认为 /vol1/@appdata/clearvault/metadata）。"
+            },
+            {
+                "type": "tips",
+                "helpText": "<strong>💡 挂载功能说明</strong><br>1. <strong>请勿强行停止</strong>：请使用应用中心的停止按钮，避免使用命令强行杀进程，否则文件夹可能无法正常访问。<br>2. <strong>上传显示</strong>：文件上传时会暂时显示为临时名称，上传完成后会自动恢复正常，请勿担心。"
+            },
+            {
+                "type": "tips",
+                "helpText": "挂载相关设置请在 Web 管理面板中进行操作。"
+            }
+        ]
+    },
+    {
+        "stepTitle": "访问设置",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "请设置 Web 管理面板的访问密码（此密码也将作为 API Key 用于接口认证）。"
+            },
+            {
+                "type": "password",
+                "field": "wizard_access_token",
+                "label": "访问密码",
+                "rules": [
+                    {
+                        "required": true,
+                        "message": "请输入访问密码"
+                    },
+                    {
+                        "min": 6,
+                        "message": "密码长度至少 6 位"
+                    }
+                ]
+            }
+        ]
+    }
+]

@@ -87,6 +87,23 @@ func (c *PendingFileCache) Remove(path string) {
 	delete(c.data, path)
 }
 
+func (c *PendingFileCache) Move(oldPath, newPath string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entry, ok := c.data[oldPath]
+	if !ok {
+		return false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(c.data, oldPath)
+		return false
+	}
+	c.data[newPath] = entry
+	delete(c.data, oldPath)
+	return true
+}
+
 type Proxy struct {
 	meta         metadata.Storage
 	remote       remote.RemoteStorage
@@ -124,6 +141,11 @@ func (p *Proxy) GetPendingSize(path string) int64 {
 func (p *Proxy) ClearPendingSize(path string) {
 	path = p.normalizePath(path)
 	p.pendingSizes.Delete(path)
+}
+
+func (p *Proxy) HasPlaceholder(pname string) bool {
+	pname = p.normalizePath(pname)
+	return p.pendingCache.Exists(pname)
 }
 
 // encryptFEK encrypts the File Encryption Key with the Master Key.
@@ -388,6 +410,11 @@ func (p *Proxy) RemoveAll(pname string) error {
 		return err
 	}
 	if meta == nil {
+		if p.pendingCache.Exists(pname) {
+			log.Printf("Proxy: RemoveAll '%s' removed memory placeholder", pname)
+			p.pendingCache.Remove(pname)
+			return nil
+		}
 		return os.ErrNotExist
 	}
 
@@ -431,7 +458,36 @@ func (p *Proxy) RenameFile(oldPath, newPath string) error {
 	newPath = p.normalizePath(newPath)
 
 	log.Printf("Proxy: RenameFile from '%s' to '%s' (metadata layer)", oldPath, newPath)
-	return p.meta.Rename(oldPath, newPath)
+	err := p.meta.Rename(oldPath, newPath)
+	if err == nil {
+		return nil
+	}
+	if p.pendingCache.Move(oldPath, newPath) {
+		log.Printf("Proxy: RenameFile moved memory placeholder from '%s' to '%s'", oldPath, newPath)
+		return nil
+	}
+	return err
+}
+
+func (p *Proxy) Mkdir(path string) error {
+	path = p.normalizePath(path)
+	log.Printf("Proxy: Mkdir '%s'", path)
+
+	meta := &metadata.FileMeta{
+		Name:       filepath.Base(path),
+		RemoteName: p.generateRemoteName(),
+		IsDir:      true,
+		Size:       0,
+		FEK:        []byte{},
+		Salt:       []byte{},
+		UpdatedAt:  time.Now(),
+	}
+	return p.meta.Save(meta, path)
+}
+
+func (p *Proxy) ReadDir(path string) ([]metadata.FileMeta, error) {
+	path = p.normalizePath(path)
+	return p.meta.ReadDir(path)
 }
 
 func (p *Proxy) DownloadFile(pname string) (io.ReadCloser, error) {

@@ -7,7 +7,7 @@
             "request": "launch",
             "mode": "auto",
             "program": "${workspaceFolder}/cmd/clearvault",
-            "args": ["--config", "config.yaml"],
+            "args": ["server", "--config", "config.yaml"],
             "cwd": "${workspaceFolder}"
         }
     ]

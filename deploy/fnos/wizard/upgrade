@@ -1,0 +1,25 @@
+[
+    {
+        "stepTitle": "更新提示",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "更新过程中服务将重启，FUSE 挂载点会短暂断开。更新不会影响您的配置和元数据。"
+            }
+        ]
+    },
+    {
+        "stepTitle": "访问密码（可选）",
+        "items": [
+            {
+                "type": "tips",
+                "helpText": "如需在更新时同步修改 Web 管理面板访问密码，请输入新密码并确认。留空表示不修改。"
+            },
+            {
+                "type": "password",
+                "field": "wizard_access_token",
+                "label": "新访问密码（留空不修改）"
+            }
+        ]
+    }
+]

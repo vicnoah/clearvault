@@ -1,0 +1,10 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - [ConfigInit] Stopping service to release mount point..." >> ${LOG_FILE}
+
+# Stop service (which unmounts FUSE) so that the system can verify/access the mount directory during configuration.
+"${CMD_DIR}/main" stop
+
+exit 0

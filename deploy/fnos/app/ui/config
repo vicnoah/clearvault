@@ -1,0 +1,13 @@
+{
+    ".url": {
+        "ClearVault.Native.App.Application": {
+            "title": "ClearVault",
+            "icon": "images/icon_{0}.png",
+            "type": "iframe",
+            "protocol": "http",
+            "port": "11339",
+            "url": "/",
+            "allUsers": false
+        }
+    }
+}

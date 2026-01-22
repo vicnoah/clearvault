@@ -12,57 +12,63 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Remote   RemoteConfig   `yaml:"remote"`
-	Security SecurityConfig `yaml:"security"`
-	Storage  StorageConfig  `yaml:"storage"`
+	Server   ServerConfig   `yaml:"server" json:"server"`
+	Remote   RemoteConfig   `yaml:"remote" json:"remote"`
+	Security SecurityConfig `yaml:"security" json:"security"`
+	Storage  StorageConfig  `yaml:"storage" json:"storage"`
+	Access   AccessConfig   `yaml:"access" json:"access"`
+}
+
+type AccessConfig struct {
+	Token string `yaml:"token" json:"token"`
 }
 
 type ServerConfig struct {
-	Listen  string `yaml:"listen"`
-	BaseURL string `yaml:"base_url"`
-	Auth    Auth   `yaml:"auth"`
+	Listen  string `yaml:"listen" json:"listen"`
+	BaseURL string `yaml:"base_url" json:"base_url"`
+	Auth    Auth   `yaml:"auth" json:"auth"`
 }
 
 type Auth struct {
-	User string `yaml:"user"`
-	Pass string `yaml:"pass"`
+	User string `yaml:"user" json:"user"`
+	Pass string `yaml:"pass" json:"pass"`
 }
 
 type RemoteConfig struct {
 	// 通用字段
-	Type string `yaml:"type"` // "webdav" 或 "s3"
+	Type string `yaml:"type" json:"type"` // "webdav" 或 "s3"
 
 	// WebDAV 字段
-	URL  string `yaml:"url"`
-	User string `yaml:"user"`
-	Pass string `yaml:"pass"`
+	URL  string `yaml:"url" json:"url"`
+	User string `yaml:"user" json:"user"`
+	Pass string `yaml:"pass" json:"pass"`
 
 	// S3 字段
-	Endpoint  string `yaml:"endpoint"`
-	Region    string `yaml:"region"`
-	Bucket    string `yaml:"bucket"`
-	AccessKey string `yaml:"access_key"`
-	SecretKey string `yaml:"secret_key"`
-	UseSSL    bool   `yaml:"use_ssl"`
+	Endpoint  string `yaml:"endpoint" json:"endpoint"`
+	Region    string `yaml:"region" json:"region"`
+	Bucket    string `yaml:"bucket" json:"bucket"`
+	AccessKey string `yaml:"access_key" json:"access_key"`
+	SecretKey string `yaml:"secret_key" json:"secret_key"`
+	UseSSL    bool   `yaml:"use_ssl" json:"use_ssl"`
+
+	// Local Filesystem 字段
+	LocalPath string `yaml:"local_path" json:"local_path"`
 }
 
 type SecurityConfig struct {
-	MasterKey string `yaml:"master_key"`
+	MasterKey string `yaml:"master_key" json:"master_key"`
 }
 
 type StorageConfig struct {
-	MetadataPath string `yaml:"metadata_path"` // JSON metadata directory
-	CacheDir     string `yaml:"cache_dir"`
+	MetadataPath string `yaml:"metadata_path" json:"metadata_path"` // JSON metadata directory
+	CacheDir     string `yaml:"cache_dir" json:"cache_dir"`
 }
 
 func LoadConfig(path string) (*Config, error) {
 	var cfg Config
-	var configFileExists bool
 
 	data, err := os.ReadFile(path)
 	if err == nil {
-		configFileExists = true
 		if err := yaml.Unmarshal(data, &cfg); err != nil {
 			return nil, err
 		}
@@ -74,20 +80,19 @@ func LoadConfig(path string) (*Config, error) {
 	// Always override with environment variables
 	processEnvOverrides(&cfg)
 
+	return &cfg, nil
+}
+
+// GenerateMasterKey checks if master key is set, if not generates it and saves to file
+func GenerateMasterKey(configPath string, cfg *Config) error {
 	// Validate or Generate Master Key
 	if cfg.Security.MasterKey == "" || cfg.Security.MasterKey == "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY" {
-		if configFileExists {
-			// If we have a config file, we can safely auto-generate and save
-			if err := generateAndSaveMasterKey(path, &cfg); err != nil {
-				return nil, err
-			}
-		} else {
-			// No config file and no master key provided via environment -> Error
-			return nil, fmt.Errorf("MASTER_KEY environment variable is required when running without a configuration file")
+		// Auto-generate and save
+		if err := generateAndSaveMasterKey(configPath, cfg); err != nil {
+			return err
 		}
 	}
-
-	return &cfg, nil
+	return nil
 }
 
 func processEnvOverrides(cfg *Config) {
@@ -139,8 +144,14 @@ func processEnvOverrides(cfg *Config) {
 	if v := os.Getenv("REMOTE_USE_SSL"); v != "" {
 		cfg.Remote.UseSSL = v == "true" || v == "1"
 	}
+	if v := os.Getenv("REMOTE_LOCAL_PATH"); v != "" {
+		cfg.Remote.LocalPath = v
+	}
 	if v := os.Getenv("MASTER_KEY"); v != "" {
 		cfg.Security.MasterKey = v
+	}
+	if v := os.Getenv("ACCESS_TOKEN"); v != "" {
+		cfg.Access.Token = v
 	}
 }
 
@@ -192,4 +203,13 @@ func generateAndSaveMasterKey(configPath string, cfg *Config) error {
 
 	log.Printf("✅ Master key saved to %s", configPath)
 	return nil
+}
+
+// SaveConfig saves the configuration struct to the specified file path
+func SaveConfig(path string, cfg *Config) error {
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
 }

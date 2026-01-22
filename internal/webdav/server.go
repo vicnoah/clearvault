@@ -43,13 +43,15 @@ func (s *LocalServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Wrap response writer to capture status code
 	sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
 
-	// Authenticate if needed
-	user, pass, ok := r.BasicAuth()
-	if !ok || !s.authenticate(user, pass) {
-		log.Printf("Auth failed for %s", user)
-		w.Header().Set("WWW-Authenticate", `Basic realm="Clearvault"`)
-		w.WriteHeader(http.StatusUnauthorized)
-		return
+	// Authenticate only when enabled
+	if s.authEnable {
+		user, pass, ok := r.BasicAuth()
+		if !ok || !s.authenticate(user, pass) {
+			log.Printf("Auth failed for %s", user)
+			w.Header().Set("WWW-Authenticate", `Basic realm="Clearvault"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
 	}
 
 	if r.Method == "PUT" && r.ContentLength > 0 {

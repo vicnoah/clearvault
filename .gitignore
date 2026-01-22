@@ -11,11 +11,14 @@ tools/zs3.log
 storage/
 
 # Build artifacts
+build/
+*.fpk
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
+deploy/fnos/app/server/clearvault
 
 # Test binary, built with `go test -c`
 *.test
@@ -29,6 +32,7 @@ vendor/
 # IDE files
 .vscode/
 .idea/
+.trae/
 *.swp
 *.swo
 *~
@@ -40,6 +44,7 @@ Thumbs.db
 # Temporary files
 tmp/
 temp/
+output/
 
 # Configuration files (keep template, ignore local configs)
 config-local.yaml

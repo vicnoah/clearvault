@@ -1,0 +1,9 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') - [Uninstall] Stopping service..." >> ${LOG_FILE}
+# Stop service (main script now handles fusermount -u)
+"${CMD_DIR}/main" stop
+
+exit 0

@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="clearvault-ui-version" content="s3-region-bucket-2026-01-24">
+    <title>ClearVault 管理面板</title>
+    <link rel="stylesheet" href="tailwind.css">
+    <style>
+        .modal-overlay{position:fixed;left:0;top:0;right:0;bottom:0;z-index:9999;display:flex;justify-content:center;align-items:center;background:rgba(75,85,99,.5);padding:1rem;overflow:auto}
+        .hidden{display:none}
+        /* Missing Tailwind Utilities */
+        .pb-6 { padding-bottom: 1.5rem; }
+        .space-y-6 > :not([hidden]) ~ :not([hidden]) { --tw-space-y-reverse: 0; margin-top: calc(1.5rem * calc(1 - var(--tw-space-y-reverse))); margin-bottom: calc(1.5rem * var(--tw-space-y-reverse)); }
+        .bg-yellow-50 { background-color: rgb(254 252 232); }
+        .border-l-4 { border-left-width: 4px; }
+        .border-yellow-400 { border-color: rgb(250 204 21); }
+        .text-yellow-400 { color: rgb(250 204 21); }
+        .text-yellow-700 { color: rgb(161 98 7); }
+        .w-5 { width: 1.25rem; }
+        .h-5 { height: 1.25rem; }
+        .w-7 { width: 1.75rem; }
+        .h-7 { height: 1.75rem; }
+        .bg-amber-50 { background-color: rgb(255 251 235); }
+        .border-amber-200 { border-color: rgb(253 230 138); }
+        .text-amber-600 { color: rgb(217 119 6); }
+        .text-amber-800 { color: rgb(146 64 14); }
+        .bg-indigo-600 { background-color: rgb(79 70 229); }
+        .inline-flex { display: inline-flex; }
+        .items-center { align-items: center; }
+        .justify-center { justify-content: center; }
+        .items-start { align-items: flex-start; }
+        .gap-3 { gap: 0.75rem; }
+        .gap-4 { gap: 1rem; }
+        .border-gray-200 { border-color: rgb(229 231 235); }
+        .rounded-lg { border-radius: 0.5rem; }
+        .p-5 { padding: 1.25rem; }
+        .mt-0.5 { margin-top: 0.125rem; }
+        .text-base { font-size: 1rem; line-height: 1.5rem; }
+        
+        /* Newly Added Utilities */
+        .px-10 { padding-left: 2.5rem; padding-right: 2.5rem; }
+        .pt-10 { padding-top: 2.5rem; }
+        .pb-8 { padding-bottom: 2rem; }
+        .py-8 { padding-top: 2rem; padding-bottom: 2rem; }
+        .pt-8 { padding-top: 2rem; }
+        .gap-5 { gap: 1.25rem; }
+        .gap-6 { gap: 1.5rem; }
+        .h-14 { height: 3.5rem; }
+        .w-14 { width: 3.5rem; }
+        .rounded-xl { border-radius: 0.75rem; }
+        .text-3xl { font-size: 1.875rem; line-height: 2.25rem; }
+        .text-2xl { font-size: 1.5rem; line-height: 2rem; }
+        .text-lg { font-size: 1.125rem; line-height: 1.75rem; }
+        .space-y-8 > :not([hidden]) ~ :not([hidden]) { --tw-space-y-reverse: 0; margin-top: calc(2rem * calc(1 - var(--tw-space-y-reverse))); margin-bottom: calc(2rem * var(--tw-space-y-reverse)); }
+        .py-4 { padding-top: 1rem; padding-bottom: 1rem; }
+        .shadow-lg { --tw-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+        .shadow-xl { --tw-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1); box-shadow: var(--tw-ring-offset-shadow, 0 0 #0000), var(--tw-ring-shadow, 0 0 #0000), var(--tw-shadow); }
+        .transition-all { transition-property: all; transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1); transition-duration: 150ms; }
+        .hover\:-translate-y-0\.5:hover { --tw-translate-y: -0.125rem; transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y)); }
+        .transform { transform: translate(var(--tw-translate-x), var(--tw-translate-y)) rotate(var(--tw-rotate)) skewX(var(--tw-skew-x)) skewY(var(--tw-skew-y)) scaleX(var(--tw-scale-x)) scaleY(var(--tw-scale-y)); }
+        /* Initialize transform vars */
+        *, ::before, ::after { --tw-translate-x: 0; --tw-translate-y: 0; --tw-rotate: 0; --tw-skew-x: 0; --tw-skew-y: 0; --tw-scale-x: 1; --tw-scale-y: 1; }
+
+        @media (min-width: 768px) {
+            .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .md\:col-span-2 { grid-column: span 2 / span 2; }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8 flex justify-between items-center">
+            <h1 class="text-3xl font-bold text-gray-800">ClearVault 管理面板</h1>
+            <div id="status-badge" class="px-3 py-1 rounded-full text-sm font-semibold bg-gray-200 text-gray-600">
+                加载中…
+            </div>
+        </header>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- Status Card -->
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">服务状态</h2>
+                <div class="space-y-2">
+                    <p><span class="font-medium">版本：</span> <span id="version">-</span></p>
+                    <p><span class="font-medium">运行时间：</span> <span id="uptime">-</span></p>
+                    <p><span class="font-medium">WebDAV 入口：</span> <a href="/dav/" class="text-blue-600 hover:underline">/dav/</a></p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">FUSE 挂载</h2>
+                <p class="text-gray-600 mb-3">选择一个已授权的空目录作为挂载点。</p>
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">挂载点</label>
+                        <select id="mountpoint-select" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            <option value="">请选择已授权路径…</option>
+                        </select>
+                        <p class="text-xs text-gray-500 mt-1">来源：应用设置里授权的目录（TRIM_DATA_ACCESSIBLE_PATHS）</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="mount-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">
+                            挂载
+                        </button>
+                        <button id="unmount-btn" class="bg-gray-600 hover:bg-gray-700 text-white font-bold py-2 px-4 rounded hidden">
+                            卸载
+                        </button>
+                    </div>
+                    <p id="mount-status" class="text-sm"></p>
+                </div>
+            </div>
+
+            <!-- Config Form -->
+            <div class="bg-white rounded-lg shadow p-6 md:col-span-2">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">配置</h2>
+                <form id="config-form" class="space-y-4">
+                    <div>
+                        <h3 class="font-medium text-gray-900 mb-2">远端存储</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">类型</label>
+                                <select id="remote-type" name="remote.type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" onchange="toggleRemoteFields()">
+                                    <option value="webdav">WebDAV</option>
+                                    <option value="s3">S3 / MinIO</option>
+                                    <option value="local">本地目录</option>
+                                </select>
+                            </div>
+                            <div id="url-container">
+                                <label class="block text-sm font-medium text-gray-700" id="url-label">WebDAV URL</label>
+                                <input type="text" id="remote-url" name="remote.url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            </div>
+                            <div id="region-container" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700">Region (区域)</label>
+                                <input type="text" id="remote-region" name="remote.region" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="例如: us-east-1">
+                            </div>
+                            <div id="bucket-container" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700">Bucket (存储桶)</label>
+                                <input type="text" id="remote-bucket" name="remote.bucket" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            </div>
+                            <div id="local-path-container" class="hidden">
+                                <label class="block text-sm font-medium text-gray-700">本地路径</label>
+                                <select id="local-path-select" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                                    <option value="">请选择已授权路径…</option>
+                                </select>
+                                <p class="text-xs text-gray-500 mt-1">来源：应用设置里授权的目录（TRIM_DATA_ACCESSIBLE_PATHS）</p>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700" id="user-label">用户名 / Access Key</label>
+                                <input type="text" id="remote-user" name="remote.user" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700" id="pass-label">密码 / Secret Key</label>
+                                <input type="password" id="remote-pass" name="remote.pass" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <h3 class="font-medium text-gray-900 mb-2">安全</h3>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">主密钥（Base64）</label>
+                            <input type="password" id="master-key" name="security.master_key" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 font-mono text-sm">
+                            <p class="text-xs text-red-500 mt-1">警告：修改主密钥会导致历史数据无法解密。</p>
+                        </div>
+                    </div>
+
+                    <div class="pt-4">
+                        <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-4 rounded w-full md:w-auto">
+                            保存配置
+                        </button>
+                        <p id="save-status" class="mt-2 text-sm"></p>
+                    </div>
+                </form>
+            </div>
+
+            <div class="bg-white rounded-lg shadow p-6 md:col-span-2">
+                <h2 class="text-xl font-semibold mb-4 text-gray-700">实用工具</h2>
+                <p class="text-sm text-gray-600 mb-4">这些功能不会写入应用配置，仅用于一次性执行；请确保操作路径在应用设置授权目录内。</p>
+
+                <div class="space-y-4">
+                    <div class="border border-gray-300 rounded-md p-6">
+                        <h3 class="font-medium text-gray-900 mb-2">加密（Encrypt）</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">输入路径（授权根目录）</label>
+                                <select id="encrypt-in-base" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                                    <option value="">请选择已授权路径…</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">输入路径（相对路径）</label>
+                                <input type="text" id="encrypt-in-rel" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="例如：documents/a.pdf 或 folder/">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">输出目录（授权根目录）</label>
+                                <select id="encrypt-out-base" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                                    <option value="">请选择已授权路径…</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">输出目录（子目录，可选）</label>
+                                <input type="text" id="encrypt-out-subdir" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="例如：export_out">
+                            </div>
+                        </div>
+                        <div class="pt-4 flex gap-2">
+                            <button id="encrypt-run-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">执行</button>
+                        </div>
+                        <p id="encrypt-status" class="mt-2 text-sm"></p>
+                    </div>
+
+                    <div class="border border-gray-300 rounded-md p-6">
+                        <h3 class="font-medium text-gray-900 mb-2">导出（Export 全部元数据）</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">导出目录（授权根目录）</label>
+                                <select id="export-out-base" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                                    <option value="">请选择已授权路径…</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">导出目录（子目录，可选）</label>
+                                <input type="text" id="export-out-subdir" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="例如：share_exports">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700">分享密钥（可选，留空自动生成）</label>
+                                <input type="password" id="export-share-key" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            </div>
+                        </div>
+                        <div class="pt-4 flex gap-2">
+                            <button id="export-run-btn" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded">执行</button>
+                        </div>
+                        <p id="export-status" class="mt-2 text-sm"></p>
+                    </div>
+
+                    <div class="border border-gray-300 rounded-md p-6">
+                        <h3 class="font-medium text-gray-900 mb-2">导入（Import 分享包）</h3>
+                        <p class="text-xs text-red-500 mb-3">警告：导入会写入/覆盖本地元数据，属于高风险操作。</p>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">分享包路径（授权根目录）</label>
+                                <select id="import-in-base" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                                    <option value="">请选择已授权路径…</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700">分享包路径（相对路径）</label>
+                                <input type="text" id="import-in-rel" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="例如：share_abc.tar">
+                            </div>
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700">分享密钥（必填）</label>
+                                <input type="password" id="import-share-key" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                            </div>
+                        </div>
+                        <div class="pt-4 flex gap-2">
+                            <button id="import-run-btn" class="bg-red-600 text-white font-bold py-2 px-4 rounded" style="background:#dc2626;">执行</button>
+                        </div>
+                        <p id="import-status" class="mt-2 text-sm"></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="security-modal" class="modal-overlay flex hidden">
+        <div class="bg-white rounded-md shadow border p-6 w-full" style="max-width: 24rem;">
+            <div style="text-align: center;">
+                <h3 class="text-xl font-medium text-red-600">⚠️ 安全警告</h3>
+                <div class="mt-2 px-4 py-2">
+                    <p class="text-sm text-gray-500">主密钥已初始化。请务必保存下方密钥！</p>
+                    <div class="bg-gray-100 p-2 mt-2 rounded border font-mono text-sm" style="word-break: break-all; user-select: all; cursor: text;">
+                        <span id="modal-master-key"></span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2" style="text-align: left;">
+                        1. <strong>无法找回</strong>：如果丢失此密钥，您的所有数据将永久丢失。<br>
+                        2. <strong>无法修改</strong>：密钥一旦设置，无法随意更改。<br>
+                        3. <strong>请备份</strong>：建议将其保存在密码管理器中。
+                    </p>
+                </div>
+                <div class="items-center px-4 py-2">
+                    <button id="modal-close-btn" class="px-4 py-2 text-white font-medium rounded-md w-full" style="background: #dc2626;">
+                        我已安全保存
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div id="setup-modal" class="modal-overlay hidden">
+        <div class="bg-white rounded-xl shadow-xl ring-1 ring-black/5 w-full" style="max-width: 48rem;">
+            <div class="px-10 pt-10 pb-8 border-b border-gray-100">
+                <div class="flex items-center gap-5">
+                    <div class="flex-shrink-0 h-14 w-14 rounded-xl bg-indigo-600 flex items-center justify-center shadow-lg">
+                        <span class="text-white text-2xl font-bold">CV</span>
+                    </div>
+                    <div>
+                        <h2 class="text-3xl font-bold text-gray-900">初始化 ClearVault</h2>
+                        <p class="mt-2 text-base text-gray-600">系统检测到尚未设置主密钥。请完成以下步骤以启用服务。</p>
+                    </div>
+                </div>
+            </div>
+
+            <form id="setup-form" class="px-10 py-8 space-y-8">
+                <div class="rounded-lg border border-gray-200 p-5">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-semibold">1</span>
+                        <h3 class="text-base font-semibold text-gray-900">存储后端</h3>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">类型</label>
+                            <select id="setup-remote-type" name="remote.type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 bg-white">
+                                <option value="webdav">WebDAV</option>
+                                <option value="s3">S3 / MinIO</option>
+                                <option value="local">本地目录</option>
+                            </select>
+                        </div>
+                        <div id="setup-url-container">
+                            <label id="setup-url-label" class="block text-sm font-medium text-gray-700">WebDAV URL</label>
+                            <input type="text" id="setup-remote-url" name="remote.url" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                        <div id="setup-region-container" class="hidden">
+                            <label class="block text-sm font-medium text-gray-700">Region (区域)</label>
+                            <input type="text" id="setup-remote-region" name="remote.region" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2" placeholder="例如: us-east-1">
+                        </div>
+                        <div id="setup-bucket-container" class="hidden">
+                            <label class="block text-sm font-medium text-gray-700">Bucket (存储桶)</label>
+                            <input type="text" id="setup-remote-bucket" name="remote.bucket" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                        <div id="setup-local-path-container" class="hidden">
+                            <label class="block text-sm font-medium text-gray-700">本地路径</label>
+                            <select id="setup-local-path-select" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 bg-white">
+                                <option value="">请选择已授权路径…</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">用户名 / Access Key</label>
+                            <input type="text" id="setup-remote-user" name="remote.user" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700">密码 / Secret Key</label>
+                            <input type="password" id="setup-remote-pass" name="remote.pass" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="rounded-lg border border-gray-200 p-5">
+                    <div class="flex items-center gap-3 mb-4">
+                        <span class="inline-flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white text-sm font-semibold">2</span>
+                        <h3 class="text-base font-semibold text-gray-900">安全</h3>
+                    </div>
+                    <div class="rounded-md bg-amber-50 border border-amber-200 p-4">
+                        <div class="flex items-start gap-3">
+                            <svg class="h-5 w-5 text-amber-600 mt-0.5" viewBox="0 0 20 20" fill="currentColor">
+                                <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+                            </svg>
+                            <p class="text-sm text-amber-800">系统会自动生成唯一的主密钥。该密钥无法找回，请务必在下一步中备份。</p>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex items-center">
+                        <input id="setup-manual-key-check" type="checkbox" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded">
+                        <label for="setup-manual-key-check" class="ml-2 block text-sm text-gray-900">我有现有的主密钥（用于恢复数据）</label>
+                    </div>
+                    <div id="setup-manual-key-container" class="mt-4 hidden">
+                        <label class="block text-sm font-medium text-gray-700">输入主密钥 (Base64)</label>
+                        <input type="password" id="setup-master-key" name="security.master_key" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2 font-mono">
+                    </div>
+                </div>
+
+                <div class="pt-8 border-t border-gray-100 flex flex-col gap-4">
+                    <div class="flex justify-end items-center gap-6">
+                        <p id="setup-status" class="text-sm text-gray-500 flex-1 text-right mr-2"></p>
+                        <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-bold py-4 px-10 rounded-xl shadow-lg transition-all hover:shadow-xl transform hover:-translate-y-0.5">
+                            初始化系统
+                        </button>
+                    </div>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Login Modal -->
+    <div id="login-modal" class="modal-overlay flex hidden">
+        <div class="bg-white rounded-md shadow border p-6 w-full" style="max-width: 24rem;">
+            <h3 class="text-lg font-medium text-gray-900 mb-2">登录验证</h3>
+            <p class="text-sm text-gray-500 mb-4">请输入访问密码以管理 ClearVault。</p>
+            <div class="mb-4">
+                <label for="login-token" class="block text-sm font-medium text-gray-700">访问密码</label>
+                <input type="password" id="login-token" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm border p-2">
+                <p id="login-error" class="text-red-500 text-xs mt-1 hidden"></p>
+            </div>
+            <div class="flex justify-end">
+                <button id="login-btn" class="px-4 py-2 rounded-md text-sm font-medium" style="background:#4f46e5;color:#ffffff;">登录</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirm Modal -->
+    <div id="confirm-modal" class="modal-overlay flex hidden">
+        <div class="bg-white rounded-md shadow border p-6 w-full" style="max-width: 24rem;">
+            <div style="text-align: center;">
+                <h3 id="confirm-title" class="text-xl font-medium text-red-600">⚠️ 极度危险操作确认</h3>
+                <div class="mt-2 px-4 py-2">
+                    <p id="confirm-message" class="text-sm text-gray-500">您正在修改主密钥。这通常会导致<strong>所有历史数据无法解密</strong>！</p>
+                    <div id="confirm-hint" class="mt-2 p-2 rounded border" style="text-align: left; background: #fef2f2;">
+                        <strong>除非您非常清楚自己在做什么（例如重置系统），否则请不要修改此密钥。</strong><br>
+                        如果您只是想更改 WebDAV 密码，请修改“远端存储”部分的配置。
+                    </div>
+                </div>
+                <div class="items-center px-4 py-2 flex gap-4">
+                    <button id="confirm-cancel-btn" class="px-4 py-2 text-white font-medium rounded-md w-full" style="background: #6b7280;">
+                        取消
+                    </button>
+                    <button id="confirm-ok-btn" class="px-4 py-2 text-white font-medium rounded-md w-full" style="background: #dc2626;">
+                        确认修改
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>

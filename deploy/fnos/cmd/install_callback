@@ -1,0 +1,53 @@
+#!/bin/bash
+CMD_DIR=$(dirname "$0")
+LOG_FILE="${TRIM_PKGVAR}/info.log"
+
+log_msg() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> ${LOG_FILE}
+}
+
+log_msg "[Install] Installation callback started."
+
+# Ensure config exists before any config subcommands (e.g., set-token).
+CONFIG_FILE="${TRIM_PKGVAR}/config.yaml"
+if [ ! -f "${CONFIG_FILE}" ]; then
+    DEFAULT_CONFIG="${TRIM_APPDEST}/server/config.default.yaml"
+    if [ -f "${DEFAULT_CONFIG}" ]; then
+        log_msg "[Install] Config file not found, copying default to ${CONFIG_FILE} ..."
+        cp "${DEFAULT_CONFIG}" "${CONFIG_FILE}"
+        
+        # 动态替换 storage 路径为当前安装位置
+        log_msg "[Install] Updating storage paths in config..."
+        sed -i "s|metadata_path:.*|metadata_path: \"${TRIM_PKGVAR}/metadata\"|g" "${CONFIG_FILE}"
+        sed -i "s|cache_dir:.*|cache_dir: \"${TRIM_PKGVAR}/cache\"|g" "${CONFIG_FILE}"
+    else
+        log_msg "[Install] Error: Default config not found at ${DEFAULT_CONFIG}"
+        exit 1
+    fi
+fi
+
+MOUNT_CONFIG_FILE="${TRIM_PKGVAR}/mount.config.json"
+if [ ! -f "${MOUNT_CONFIG_FILE}" ]; then
+    cat > "${MOUNT_CONFIG_FILE}" <<EOF
+{
+    "auto": false,
+    "mountpoint": "",
+    "delaySeconds": 5
+}
+EOF
+    log_msg "[Install] No mount config found, created default mount config."
+else
+    log_msg "[Install] Mount config found, keeping existing mount config."
+fi
+
+# 处理访问密码设置
+if [ -n "${wizard_access_token}" ]; then
+    log_msg "[Install] Setting access token..."
+    "${CMD_DIR}/main" config set-token "${wizard_access_token}"
+else
+    log_msg "[Install] No access token provided in wizard."
+fi
+
+log_msg "[Install] Installation completed."
+
+exit 0

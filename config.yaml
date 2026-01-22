@@ -1,20 +1,25 @@
-# 服务端配置
 server:
-  listen: "127.0.0.1:8080"
-  base_url: "/dav"
-  auth:
-    user: "admin"
-    pass: "123456"
-
-# 远端存储配置 (Nextcloud, AList, etc.)
+    listen: :8000
+    base_url: ""
+    auth:
+        user: ""
+        pass: ""
 remote:
-  url: "http://127.0.0.1:8080/dav/"
-  user: "admin"
-  pass: "123456"
-
-# 安全与持久化
+    type: local
+    url: ""
+    user: ""
+    pass: ""
+    endpoint: ""
+    region: ""
+    bucket: ""
+    access_key: ""
+    secret_key: ""
+    use_ssl: false
+    local_path: ./data
 security:
-  master_key: "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk=" # "this-is-a-32-byte-long-masterkey"
+    master_key: CHANGE-THIS-TO-A-SECURE-32BYTE-KEY
 storage:
-  db_path: "./storage/data/clearvault.db"         # 元数据数据库
-  cache_dir: "./storage/cache"               # 传输缓冲区
+    metadata_path: ""
+    cache_dir: ""
+access:
+    token: mysecret

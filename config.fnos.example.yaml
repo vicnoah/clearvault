@@ -1,0 +1,37 @@
+# ClearVault（飞牛 fnOS）示例配置
+#
+# 说明：
+# - 本文件会作为安装后的默认配置拷贝到 ${TRIM_PKGVAR}/config.yaml
+# - 建议主要通过网页 UI 修改配置
+# - 元数据与缓存目录在 fnOS 下默认放到 /vol1/@appdata/clearvault 下（多数设备是 vol1）
+#   实际运行时仍会以 TRIM_PKGVAR 为准（启动脚本会通过环境变量覆盖）
+#
+
+server:
+    listen: "0.0.0.0:11339"
+    base_url: "/dav"
+    auth:
+        user: ""
+        pass: ""
+
+security:
+    # 留空或保持默认值，首次启动会自动生成安全密钥并回写入配置文件
+    master_key: "CHANGE-THIS-TO-A-SECURE-32BYTE-KEY"
+
+storage:
+    metadata_path: "/vol1/@appdata/ClearVault.Native.App/metadata"
+    cache_dir: "/vol1/@appdata/ClearVault.Native.App/cache"
+
+remote:
+    # webdav | s3 | local
+    type: "webdav"
+    url: ""
+    user: ""
+    pass: ""
+    endpoint: ""
+    region: ""
+    bucket: ""
+    access_key: ""
+    secret_key: ""
+    use_ssl: true
+    local_path: ""
