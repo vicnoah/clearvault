@@ -28,9 +28,29 @@ jobs:
 
             - name: Install dependencies
               run: |
+                  # 1. 开启 arm64 架构支持
                   sudo dpkg --add-architecture arm64
+
+                  # 2. 优化现有的 amd64 源：指定只下载 amd64 架构的包
+                  # 处理传统 .list 文件
+                  if [ -f /etc/apt/sources.list ]; then
+                    sudo sed -i 's/deb http/deb [arch=amd64] http/g' /etc/apt/sources.list
+                  fi
+                  # 处理 Ubuntu 24.04 新版的 .sources 文件
+                  if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+                    sudo sed -i 's/Architectures: amd64/Architectures: amd64/g' /etc/apt/sources.list.d/ubuntu.sources
+                  fi
+
+                  # 3. 添加 arm64 专属的 Ports 源（使用 printf 避免 EOF 缩进问题）
+                  # 注意：这里使用了 $(lsb_release -sc) 来自动获取版本号（如 noble 或 jammy）
+                  SUITE=$(lsb_release -sc)
+                  PORTS_URL="http://ports.ubuntu.com/ubuntu-ports/"
+                  printf "deb [arch=arm64] %s %s main restricted universe multiverse\n" "$PORTS_URL" "$SUITE" | sudo tee /etc/apt/sources.list.d/arm64-ports.list
+                  printf "deb [arch=arm64] %s %s-updates main restricted universe multiverse\n" "$PORTS_URL" "$SUITE" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+                  printf "deb [arch=arm64] %s %s-security main restricted universe multiverse\n" "$PORTS_URL" "$SUITE" | sudo tee -a /etc/apt/sources.list.d/arm64-ports.list
+
+                  # 4. 更新并安装
                   sudo apt-get update
-                  # 同时安装 amd64(默认) 和 arm64 的开发库
                   sudo apt-get install -y \
                     build-essential \
                     pkg-config \
