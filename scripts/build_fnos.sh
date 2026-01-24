@@ -110,11 +110,11 @@ build_arch() {
     mv deploy/fnos/manifest.tmp deploy/fnos/manifest
 }
 
+# Build ARM (Build first so x86 binary remains for CI verification)
+build_arch "arm64" "arm"
+
 # Build x86
 build_arch "amd64" "x86"
-
-# Build ARM
-build_arch "arm64" "arm"
 
 echo "========================================"
 echo "Build Complete! Packages are in $OUTPUT_DIR"
