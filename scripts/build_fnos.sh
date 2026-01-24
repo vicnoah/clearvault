@@ -4,119 +4,110 @@ set -e
 OUTPUT_DIR="build/fnos"
 mkdir -p "${OUTPUT_DIR}"
 
+# --- 1. 读取基础信息 ---
 APPNAME="$(awk -F= '/^appname/ {gsub(/ /,"",$2); print $2}' deploy/fnos/manifest | head -n 1)"
 VERSION="$(awk -F= '/^version/ {gsub(/ /,"",$2); print $2}' deploy/fnos/manifest | head -n 1)"
+
 if [ -z "${APPNAME}" ] || [ -z "${VERSION}" ]; then
     echo "Error: failed to read appname/version from deploy/fnos/manifest"
     exit 1
 fi
 
-# Common Setup
-# Copy default config for fnOS package
+# --- 2. 通用准备工作 ---
 echo "Copying config..."
 if [ -f config.fnos.example.yaml ]; then
     cp config.fnos.example.yaml deploy/fnos/app/server/config.default.yaml
 elif [ -f config.example.yaml ]; then
     cp config.example.yaml deploy/fnos/app/server/config.default.yaml
 else
-    echo "Warning: config.fnos.example.yaml not found, creating dummy default config"
+    echo "Warning: No example config found, creating empty default"
     touch deploy/fnos/app/server/config.default.yaml
 fi
 
-# Copy icons from template if available (and if not already present)
 echo "Copying icons..."
 TEMPLATE_DIR="/tmp/fnos_template/demo-app"
 if [ -d "$TEMPLATE_DIR" ]; then
     [ ! -f deploy/fnos/ICON.PNG ] && cp "$TEMPLATE_DIR/ICON.PNG" deploy/fnos/ICON.PNG
     [ ! -f deploy/fnos/ICON_256.PNG ] && cp "$TEMPLATE_DIR/ICON_256.PNG" deploy/fnos/ICON_256.PNG
-    [ ! -f deploy/fnos/app/ui/images/icon_64.png ] && cp "$TEMPLATE_DIR/app/ui/images/icon_64.png" deploy/fnos/app/ui/images/icon_64.png
-    [ ! -f deploy/fnos/app/ui/images/icon_256.png ] && cp "$TEMPLATE_DIR/app/ui/images/icon_256.png" deploy/fnos/app/ui/images/icon_256.png
 else
-    echo "Warning: Template icons not found, using placeholders if needed"
+    echo "Warning: Template icons not found, ensuring placeholders exist"
     [ ! -f deploy/fnos/ICON.PNG ] && touch deploy/fnos/ICON.PNG
     [ ! -f deploy/fnos/ICON_256.PNG ] && touch deploy/fnos/ICON_256.PNG
 fi
 
-# Make scripts executable
-chmod +x deploy/fnos/cmd/*
+chmod +x deploy/fnos/cmd/* || true
 
-# Build Function
+# --- 3. 核心构建函数 ---
 build_arch() {
-    ARCH=$1
-    PLATFORM=$2
+    ARCH=$1      # go arch: amd64, arm64
+    PLATFORM=$2  # fnos manifest platform: x86, arm
 
     echo "========================================"
     echo "Building for $ARCH (Platform: $PLATFORM)..."
     echo "========================================"
 
-    # 1. Compile Binary
-    echo "Compiling ClearVault..."
-    # Note: Cross-compiling CGO (for FUSE) is tricky.
-    # If on x86 host, building for arm64 requires cross-compiler (aarch64-linux-gnu-gcc).
-    # We assume the build environment has this if CGO is enabled.
-    # If not, we might need to disable CGO for ARM or use a docker builder.
-    # For now, let's try standard go build.
+    # 初始化编译环境变量
+    export CGO_ENABLED=1
+    export GOOS=linux
+    export GOARCH=$ARCH
+
+    # 清理旧的环境变量，防止交叉影响
+    unset CC
+    unset PKG_CONFIG_PATH
+    unset PKG_CONFIG_LIBDIR
+    export PKG_CONFIG_ALLOW_CROSS=1
 
     if [ "$ARCH" == "amd64" ]; then
-        CC=gcc CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -tags fuse -o deploy/fnos/app/server/clearvault ./cmd/clearvault
+        # 本地编译环境
+        export CC=gcc
+        # 默认使用系统的 pkg-config 路径
     elif [ "$ARCH" == "arm64" ]; then
-        # Assuming cross-compiler is available as aarch64-linux-gnu-gcc
+        # 交叉编译环境
         if command -v aarch64-linux-gnu-gcc &> /dev/null; then
-            CC=aarch64-linux-gnu-gcc CGO_ENABLED=1 GOOS=linux GOARCH=arm64 go build -tags fuse -o deploy/fnos/app/server/clearvault ./cmd/clearvault
+            export CC=aarch64-linux-gnu-gcc
+            # 关键：指定 pkg-config 寻找 arm64 架构的库文件 (.pc文件)
+            export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
         else
-            echo "Warning: aarch64-linux-gnu-gcc not found. Building ARM64 without CGO (No FUSE support)."
-            CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o deploy/fnos/app/server/clearvault ./cmd/clearvault
+            echo "Error: aarch64-linux-gnu-gcc not found! Cannot build ARM64 with CGO."
+            exit 1
         fi
     fi
 
-    # Ensure binary is executable (critical for fnOS execution)
+    echo "Compiling binary with CGO and FUSE tags..."
+    go build -tags fuse -o deploy/fnos/app/server/clearvault ./cmd/clearvault
     chmod +x deploy/fnos/app/server/clearvault
 
-    # Ensure default config is present
-    if [ ! -f deploy/fnos/app/server/config.default.yaml ]; then
-        echo "Error: config.default.yaml missing!"
-        exit 1
-    fi
-
-    # 2. Update Manifest
-    # Use a temporary manifest file
+    # --- 4. 打包 FPK ---
+    echo "Updating manifest platform to $PLATFORM..."
     cp deploy/fnos/manifest deploy/fnos/manifest.tmp
+    # 确保 manifest 中有正确的 platform
+    sed -i "/^platform/d" deploy/fnos/manifest
     echo "platform              = $PLATFORM" >> deploy/fnos/manifest
 
-    # 3. Pack
-    echo "Packing FPK..."
-    # Ensure no stale fpk exists
+    echo "Packing FPK for $PLATFORM..."
     rm -f *.fpk
-
-    # fnpack build generates file in current dir by default, usually named appname_version_arch.fpk
     fnpack build -d deploy/fnos
-
-    # Move FPK to output dir with explicit name to avoid overwrites
-    # We find the generated fpk and rename it to include our explicit arch name if needed,
-    # but fnpack usually names it App.Native.Appname_Version_Arch.fpk.
-    # However, if fnpack doesn't respect platform override in filename, we force it.
 
     GENERATED_FPK=$(ls *.fpk | head -n 1)
     if [ -n "$GENERATED_FPK" ]; then
         TARGET_NAME="${APPNAME}_${VERSION}_${PLATFORM}.fpk"
         mv "$GENERATED_FPK" "${OUTPUT_DIR}/${TARGET_NAME}"
-        echo "Created package: ${OUTPUT_DIR}/${TARGET_NAME}"
+        echo "Successfully created: ${OUTPUT_DIR}/${TARGET_NAME}"
     else
-        echo "Error: FPK generation failed or file not found"
+        echo "Error: FPK generation failed"
         exit 1
     fi
 
-    # 4. Restore Manifest
+    # 还原 manifest 供下次循环使用
     mv deploy/fnos/manifest.tmp deploy/fnos/manifest
 }
 
-# Build ARM (Build first so x86 binary remains for CI verification)
+# --- 5. 执行构建 ---
+# 先跑 arm64，再跑 amd64
 build_arch "arm64" "arm"
-
-# Build x86
 build_arch "amd64" "x86"
 
 echo "========================================"
-echo "Build Complete! Packages are in $OUTPUT_DIR"
+echo "All builds completed! Files in $OUTPUT_DIR"
 echo "========================================"
 ls -lh $OUTPUT_DIR
