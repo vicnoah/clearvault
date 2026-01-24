@@ -13,6 +13,10 @@
 - [Windows 文件锁定处理](#windows-文件锁定处理)
 - [简单分享功能](#简单分享功能)
 - [性能优化](#性能优化)
+- [FUSE 文件系统实现](#fuse-文件系统实现)
+- [fnOS 原生应用集成](#fnos-原生应用集成)
+- [Docker 中使用 FUSE](#docker-中使用-fuse)
+- [未初始化模式与 WebUI](#未初始化模式与-webui)
 
 ## 架构概览
 
@@ -1085,6 +1089,8 @@ clearvault <command> [command options]
 | `export` | 元数据导出 | 导出加密分享包 |
 | `import` | 元数据导入 | 导入加密分享包 |
 | `server` | 启动 WebDAV 服务器 | 启动在线服务 |
+| `mount` | FUSE 挂载 | 将加密存储挂载为本地目录（需要 FUSE 支持构建） |
+| `config` | 配置管理 | 配置读取/更新（例如设置访问 token） |
 
 ### 命令参数
 
@@ -1134,14 +1140,16 @@ clearvault import --input <input_file> --share-key <key> [--config <config_file>
 #### server 命令
 
 ```bash
-clearvault server [--config <config_file>] [--help]
+clearvault server [--config <config_file>] [--init=<bool>] [--ui <ui_dir>] [--help]
 ```
 
 **参数**：
 - `--config string`：配置文件路径（默认 "config.yaml"）
+- `--init bool`：如果密钥不存在，是否自动生成并初始化（默认 true）
+- `--ui string`：UI 静态资源目录路径（可选，用于管理面板）
 - `--help`：显示帮助信息
 
-**实现**：启动 WebDAV 服务器，连接远程存储
+**实现**：启动 HTTP 服务并在初始化完成后挂载 WebDAV 服务器。若 `--init=false` 且未完成初始化，将进入“未初始化模式”（仅开放 Setup 所需 API/管理面板，WebDAV 路径返回 503）。
 
 ### 帮助系统
 
@@ -1154,6 +1162,7 @@ clearvault server [--config <config_file>] [--help]
 ./clearvault export --help
 ./clearvault import --help
 ./clearvault server --help
+./clearvault mount --help
 ```
 
 ### 参数优先级
@@ -1163,6 +1172,112 @@ clearvault server [--config <config_file>] [--help]
 2. 环境变量（如 `MASTER_KEY="test-key"`）
 3. 配置文件（如 `config.yaml`）
 4. 默认值
+
+## FUSE 文件系统实现
+
+ClearVault 提供基于 FUSE 的本地挂载能力，允许将加密存储以目录形式呈现给操作系统与 NAS 文件管理器。
+
+### 入口与构建条件
+
+- CLI 入口：`cmd/clearvault/mount_fuse.go`（注册 `clearvault mount`）
+- 文件系统实现：`internal/fuse/fs.go`
+- 依赖：`github.com/winfsp/cgofuse/fuse`（CGO）
+- 构建约束：以上实现均带 `//go:build fuse`，需要以启用 FUSE 的方式构建二进制（并满足系统侧 FUSE 运行时/头文件要求）
+
+### 写入与上传模型（对象存储语义）
+
+远端存储（WebDAV/S3 等）通常不支持随机写，因此 FUSE 写入采用“严格顺序写 + 流式上传”：
+
+- 若 `Write(path, ofst)` 发现 `ofst != expected`，直接返回 `EOPNOTSUPP`，避免随机写导致的数据损坏或拼接错误。
+- 第一次写入时创建 `io.Pipe()`，在 goroutine 中将 pipe reader 交给 `Proxy.UploadFile(..., size=-1)`；后续 `Write` 仅向 pipe writer 写入，实现边写边上传。
+- `Release` 时关闭 pipe writer 并等待上传 goroutine 返回，确保写入在关闭句柄时完成。
+
+### placeholder 与写入中 rename（fnOS 兼容）
+
+fnOS 场景常见“临时文件名 + 重命名”上传序列（例如 `filename.~#0`），并可能在写入过程中触发 `Rename(temp → final)`。为保证兼容性：
+
+- 对 0 字节 `*.~#*` 临时文件，不立刻上传远端 0B 对象，而是保存内存 placeholder，供后续第二阶段写入阶段使用。
+- 若 `Rename` 命中“正在写入中的句柄”，先记录 `renameTo` 并返回成功；在 `Release`（上传完成）阶段再执行最终重命名，避免残留临时名。
+- `Getattr/Open/Access` 会把 placeholder 视为“存在的 0B 文件”，避免第二阶段打开时 ENOENT。
+
+更完整的 fnOS 行为序列与对照日志见：[docs/fnos-fuse-upload-behavior.md](docs/fnos-fuse-upload-behavior.md)。
+
+### 权限与可见性
+
+- 挂载默认使用 `allow_other,default_permissions`，以便挂载用户以外的进程（例如 NAS 文件管理器）访问挂载点。
+- 可通过 `FUSE_UID/FUSE_GID` 映射文件属主；若未设置，挂载命令会从挂载点目录 owner 推断并设置环境变量。
+
+## fnOS 原生应用集成
+
+仓库内提供 fnOS 原生应用目录与打包脚本，用于生成可安装的 FPK 包，并在 fnOS 上集成 WebUI、初始化与 FUSE 自动挂载能力。
+
+### 打包与默认配置
+
+- 打包目录：`deploy/fnos/`
+- 构建脚本：`scripts/build_fnos.sh`
+- 默认配置：构建脚本会将 `config.fnos.example.yaml`（或 `config.example.yaml`）复制为包内 `deploy/fnos/app/server/config.default.yaml`，供安装回调在首次安装时落盘到持久化目录。
+- 架构注意：脚本会尽量在 amd64/arm64 上启用 `-tags fuse`（CGO）；若 arm64 环境缺少交叉编译器，可能降级为无 FUSE 的二进制。
+
+### 安装回调（首次安装）
+
+`deploy/fnos/cmd/install_callback` 负责准备首次运行所需的持久化文件：
+
+- 若 `${TRIM_PKGVAR}/config.yaml` 不存在，则从包内 `config.default.yaml` 复制生成，并将 metadata/cache 路径替换为 `${TRIM_PKGVAR}` 下的目录。
+- 若 `${TRIM_PKGVAR}/mount.config.json` 不存在，则生成默认配置（`auto=false`、`mountpoint=""`、`delaySeconds=5`）。
+- 若安装向导提供访问 token，则调用 `config set-token` 写入配置。
+
+### 启动/停止与自动挂载
+
+`deploy/fnos/cmd/main` 负责运行时生命周期管理：
+
+- 启动时将 metadata/cache 通过环境变量覆盖到 `${TRIM_PKGVAR}`（避免依赖配置文件中的路径）。
+- 以 `clearvault server --init=false --ui <ui_dir>` 启动服务，使其先提供管理面板与初始化接口；完成初始化后再启用 WebDAV（通常需要重启服务以加载 WebDAV handler）。
+- 若 `mount.config.json` 配置了 `auto=true` 且 `mountpoint` 非空，则延迟一段时间后调用 `clearvault mount ...` 进行自动挂载，并在停止应用时卸载挂载点。
+
+## Docker 中使用 FUSE
+
+仓库提供 `Dockerfile.fuse` 用于构建带 FUSE 运行时的镜像（默认镜像主要用于运行 WebDAV 服务）。
+
+### 构建
+
+```bash
+docker build -f Dockerfile.fuse -t clearvault:fuse .
+```
+
+### 运行（容器内挂载）
+
+FUSE 挂载依赖宿主机内核能力，因此运行容器时通常需要：
+
+- 挂载设备：`--device /dev/fuse`
+- 增加能力：`--cap-add SYS_ADMIN`
+- 在部分发行版上还需要放宽安全策略（例如 AppArmor）
+
+示例：
+
+```bash
+docker run --rm -it \
+  --device /dev/fuse \
+  --cap-add SYS_ADMIN \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v /your/mountpoint:/mnt/clearvault:rshared \
+  clearvault:fuse mount --config /app/config.yaml --mountpoint /mnt/clearvault
+```
+
+注意：若你需要让“容器内的挂载”对宿主机可见，挂载点的 mount propagation（例如 `rshared`）与宿主机安全策略会成为关键限制，建议先在非生产环境验证。
+
+## 未初始化模式与 WebUI
+
+为支持“先启动管理面板、后初始化配置”的安装体验（尤其是 fnOS 原生应用场景），ClearVault 支持未初始化模式：
+
+- 初始化判定：以 `security.master_key` 是否为有效值作为判断（空或占位符视为未初始化）。
+- server 侧：未初始化时不创建 metadata/remote/proxy 等组件，不挂载 WebDAV；但仍启动 HTTP 服务并可通过 `--ui` 提供管理面板静态资源。
+- API 侧：未初始化时仅放行少量端点用于初始化（例如 `/api/v1/status`、`/api/v1/config`、`/api/v1/paths`）；其余 API 返回 503。
+- 初始化入口：通过 `/api/v1/config` 写入配置；在未初始化状态下允许自动生成并回写 master key（用于 WebUI 一键初始化流程）。
+
+实现位置参考：
+
+- server：`cmd/clearvault/main.go`（`handleServer` 的初始化 gating、`--init/--ui` 支持）
+- API：`internal/api/api.go`（`IsInitialized`、`AuthMiddleware`、`HandleConfig`）
 
 ## 未来改进方向
 

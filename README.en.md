@@ -16,6 +16,8 @@ ClearVault is an encrypted cloud storage proxy service based on the WebDAV proto
 - 📤 **Offline Encrypted Export**: Encrypt files locally and manually upload to cloud when WebDAV uploads are unstable
 - 🌍 **S3 Protocol Support**: Supports S3-compatible storage (MinIO, Cloudflare R2, AWS S3, etc.) as remote storage
 - 📤📤 **Simple Share Feature**: Export/import encrypted metadata packages for secure file sharing
+- 🧩 **FUSE Mount**: Mount encrypted storage as a local directory (for NAS/system integration)
+- 📦 **fnOS Native App**: Ships as a fnOS native app package with built-in WebUI and optional auto-mount
 
 ## 📋 System Requirements
 
@@ -80,6 +82,10 @@ After startup, the local WebDAV service address is: `http://127.0.0.1:8080/dav/`
 ### Method 2: Docker Deployment (Recommended for Production)
 
 See [Docker Deployment](#-docker-deployment)
+
+### Method 3: fnOS Native App
+
+After installing the fnOS native app, you can complete initialization/configuration in WebUI and optionally enable auto FUSE mount. See [fnOS Native App](#-fnos-native-app).
 
 ## 📖 Usage Guide
 
@@ -233,12 +239,67 @@ Supported Environment Variables (can override config.yaml or be used as primary 
 1. If you are not using a `config.yaml` file, you MUST provide the `MASTER_KEY` environment variable; otherwise, the application will exit with an error.
 2. If `config.yaml` is present, environment variables will override the corresponding settings in the file.
 
+### Docker + FUSE Mount (Optional)
+
+If you want to run `clearvault mount` (FUSE mount) inside Docker, build with `Dockerfile.fuse` and run the container with the required FUSE permissions. See [TECHNICAL.md](TECHNICAL.md) for more details.
+
+Example:
+
+```bash
+docker build -f Dockerfile.fuse -t clearvault:fuse .
+
+docker run --rm -it \
+  --device /dev/fuse \
+  --cap-add SYS_ADMIN \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v /your/mountpoint:/mnt/clearvault:rshared \
+  clearvault:fuse mount --config /app/config.yaml --mountpoint /mnt/clearvault
+```
+
+## 🧰 fnOS Native App
+
+ClearVault ships as a fnOS native app (FPK), designed for NAS scenarios and easier setup:
+
+- **Built-in WebUI**: Complete initialization and configuration (master key, remote storage, access token, etc.).
+- **Uninitialized Safety**: WebDAV is not served until initialization is completed, avoiding startup failures caused by missing configs.
+- **Optional Auto Mount**: Supports delayed FUSE auto-mount, and unmounts on app stop.
+
+### Data Directories & Key Files
+
+On fnOS, ClearVault uses `${TRIM_PKGVAR}` as the persistent directory (common example: `/vol1/@appdata/ClearVault.Native.App/`). Key paths:
+
+- `${TRIM_PKGVAR}/config.yaml`: configuration file
+- `${TRIM_PKGVAR}/metadata/`: metadata directory
+- `${TRIM_PKGVAR}/cache/`: cache directory
+- `${TRIM_PKGVAR}/info.log`: runtime log
+- `${TRIM_PKGVAR}/app.pid`: main process PID
+- `${TRIM_PKGVAR}/mount.config.json`: auto-mount config (`auto/mountpoint/delaySeconds`)
+- `${TRIM_PKGVAR}/mount.pid`: mount process PID
+- `${TRIM_PKGVAR}/mount.json`: current mount info (pid, mountpoint)
+
+### Compatibility & Troubleshooting
+
+For fnOS-specific FUSE behaviors (temporary files, rename timing, etc.), see: [docs/fnos-fuse-upload-behavior.md](docs/fnos-fuse-upload-behavior.md).
+
+## 🧩 FUSE Mount
+
+ClearVault can mount encrypted storage as a local directory via FUSE.
+
+```bash
+./clearvault mount --config config.yaml --mountpoint /path/to/mount
+```
+
+Notes:
+
+- `--mountpoint` must be an existing directory.
+- If you build the binary yourself and need FUSE support, see build/runtime notes in [TECHNICAL.md](TECHNICAL.md).
+
 
 ## 🔧 Configuration Guide
 
+
 ### Metadata Storage
 
-ClearVault uses local filesystem storage for metadata (JSON format), with each file corresponding to a metadata file.
 
 **Pros:**
 - Simple, no dependencies, easy to backup

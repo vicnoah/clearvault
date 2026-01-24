@@ -15,6 +15,8 @@ ClearVault 是一个基于 WebDAV 协议的加密云存储代理服务，支持�
 - 🪟 **Windows 优化**：针对 Windows 文件锁定和 RaiDrive 客户端进行了特殊优化
 - 📤 **离线加密导出**：支持本地批量加密导出后手动上传云端，规避不稳定 WebDAV 上传
 - 🌍 **S3 协议支持**：支持 S3 兼容存储（MinIO、Cloudflare R2、AWS S3 等）作为远端存储
+- 🧩 **FUSE 挂载**：支持将加密存储挂载为本地目录（可用于 NAS/系统集成）
+- 📦 **fnOS 原生应用**：提供飞牛 fnOS 原生应用包，内置 WebUI 管理与可选自动挂载
 
 ## 📋 系统要求
 
@@ -79,6 +81,10 @@ remote:
 ### 方式二：Docker 部署（推荐用于生产环境）
 
 详见 [Docker 部署文档](#-docker-部署)
+
+### 方式三：飞牛 fnOS 原生应用
+
+安装 fnOS 原生应用后，可通过 WebUI 进行初始化/配置，并按需启用自动 FUSE 挂载，详见 [fnOS（飞牛）原生应用](#-fnos飞牛原生应用)。
 
 ## 📖 使用指南
 
@@ -337,12 +343,67 @@ docker run -d \
 1. 如果不使用 `config.yaml` 启动，必须手动提供 `MASTER_KEY` 环境变量，否则程序将报错退出。
 2. 在有 `config.yaml` 的情况下，环境变量将覆盖文件中的对应配置。
 
+### Docker 中使用 FUSE 挂载（可选）
+
+如果你希望在 Docker 容器内使用 `clearvault mount`（FUSE 挂载），需要使用仓库提供的 `Dockerfile.fuse` 构建镜像，并在运行容器时开启 FUSE 所需权限。更完整的说明见 [TECHNICAL.md](TECHNICAL.md)。
+
+示例：
+
+```bash
+docker build -f Dockerfile.fuse -t clearvault:fuse .
+
+docker run --rm -it \
+  --device /dev/fuse \
+  --cap-add SYS_ADMIN \
+  -v $(pwd)/config.yaml:/app/config.yaml \
+  -v /your/mountpoint:/mnt/clearvault:rshared \
+  clearvault:fuse mount --config /app/config.yaml --mountpoint /mnt/clearvault
+```
+
+## 🧰 fnOS（飞牛）原生应用
+
+ClearVault 提供飞牛 fnOS 原生应用（FPK）形态，主要面向 NAS 场景，提供更易用的安装、初始化与挂载能力：
+
+- **内置 WebUI 管理**：首次安装后可在 WebUI 中完成初始化与配置（主密钥、远端存储、访问令牌等）。
+- **未初始化保护**：未完成初始化时不会对外提供 WebDAV 服务，避免因为缺少配置导致启动失败。
+- **可选自动挂载**：支持按配置自动延迟执行 FUSE 挂载，并可在应用停止时自动卸载挂载点。
+
+### 数据目录与关键文件
+
+fnOS 运行时会使用 `${TRIM_PKGVAR}` 作为持久化目录（常见示例：`/vol1/@appdata/ClearVault.Native.App/`）。常用落点如下：
+
+- `${TRIM_PKGVAR}/config.yaml`：配置文件
+- `${TRIM_PKGVAR}/metadata/`：元数据目录
+- `${TRIM_PKGVAR}/cache/`：缓存目录
+- `${TRIM_PKGVAR}/info.log`：运行日志
+- `${TRIM_PKGVAR}/app.pid`：主服务进程 PID
+- `${TRIM_PKGVAR}/mount.config.json`：自动挂载配置（`auto/mountpoint/delaySeconds`）
+- `${TRIM_PKGVAR}/mount.pid`：自动挂载进程 PID
+- `${TRIM_PKGVAR}/mount.json`：当前挂载信息（pid、mountpoint）
+
+### 兼容性与排障
+
+fnOS 场景的 FUSE 挂载与上传行为（临时文件、重命名时序等）有其特点。排障与行为记录见：[docs/fnos-fuse-upload-behavior.md](docs/fnos-fuse-upload-behavior.md)。
+
+## 🧩 FUSE 挂载
+
+ClearVault 支持通过 FUSE 将加密存储挂载为本地目录，便于在 NAS 或系统中以“文件夹”的方式访问。
+
+```bash
+./clearvault mount --config config.yaml --mountpoint /path/to/mount
+```
+
+说明：
+
+- `--mountpoint` 必须是已存在的目录。
+- 若你是自行编译二进制并需要启用 FUSE 挂载能力，请参考 [TECHNICAL.md](TECHNICAL.md) 中的构建与依赖说明。
+
 
 ## 🔧 配置说明
 
+
 ### 元数据存储
 
-ClearVault 使用本地文件系统存储元数据（JSON 格式），每个文件对应一个元数据文件。
 
 **优点：**
 - 简单、无依赖、易于备份
