@@ -46,27 +46,40 @@ build_arch() {
     echo "Building for $ARCH (Platform: $PLATFORM)..."
     echo "========================================"
 
-    # 初始化编译环境变量
+    # 初始化基础编译环境变量
     export CGO_ENABLED=1
     export GOOS=linux
     export GOARCH=$ARCH
 
-    # 清理旧的环境变量，防止交叉影响
+    # 强制开启交叉编译支持并清理旧变量
+    export PKG_CONFIG_ALLOW_CROSS=1
     unset CC
     unset PKG_CONFIG_PATH
-    unset PKG_CONFIG_LIBDIR
-    export PKG_CONFIG_ALLOW_CROSS=1
+    unset CGO_CFLAGS
+    unset CGO_LDFLAGS
+
+    # 检查头文件位置（调试用）
+    if [ -d "/usr/include/fuse3" ]; then
+        echo "Found FUSE3 headers at /usr/include/fuse3"
+    fi
 
     if [ "$ARCH" == "amd64" ]; then
-        # 本地编译环境
+        # x86_64 编译配置
         export CC=gcc
-        # 默认使用系统的 pkg-config 路径
+        # 显式指向头文件路径以防 pkg-config 失效
+        export CGO_CFLAGS="-I/usr/include/fuse3"
+        export CGO_LDFLAGS="-lfuse3"
+
     elif [ "$ARCH" == "arm64" ]; then
-        # 交叉编译环境
+        # ARM64 交叉编译配置
         if command -v aarch64-linux-gnu-gcc &> /dev/null; then
             export CC=aarch64-linux-gnu-gcc
-            # 关键：指定 pkg-config 寻找 arm64 架构的库文件 (.pc文件)
+            # 关键：1. 指定 arm64 的库搜索路径
             export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+            # 关键：2. 显式包含 FUSE3 头文件路径
+            export CGO_CFLAGS="-I/usr/include/fuse3"
+            # 关键：3. 指定库文件路径并链接
+            export CGO_LDFLAGS="-L/usr/lib/aarch64-linux-gnu -lfuse3"
         else
             echo "Error: aarch64-linux-gnu-gcc not found! Cannot build ARM64 with CGO."
             exit 1
@@ -74,13 +87,14 @@ build_arch() {
     fi
 
     echo "Compiling binary with CGO and FUSE tags..."
+    # 使用 -v 可以在日志中看到更多 Go 编译详情
     go build -tags fuse -o deploy/fnos/app/server/clearvault ./cmd/clearvault
     chmod +x deploy/fnos/app/server/clearvault
 
-    # --- 4. 打包 FPK ---
+    # --- 4. 更新 Manifest 并打包 ---
     echo "Updating manifest platform to $PLATFORM..."
     cp deploy/fnos/manifest deploy/fnos/manifest.tmp
-    # 确保 manifest 中有正确的 platform
+    # 删除旧的 platform 行并追加新的
     sed -i "/^platform/d" deploy/fnos/manifest
     echo "platform              = $PLATFORM" >> deploy/fnos/manifest
 
@@ -98,16 +112,19 @@ build_arch() {
         exit 1
     fi
 
-    # 还原 manifest 供下次循环使用
+    # 还原原始 manifest
     mv deploy/fnos/manifest.tmp deploy/fnos/manifest
 }
 
-# --- 5. 执行构建 ---
-# 先跑 arm64，再跑 amd64
+# --- 5. 执行构建循环 ---
+# 先编译 ARM64（通常交叉编译更容易报错，先测试）
 build_arch "arm64" "arm"
+
+# 再编译 AMD64
 build_arch "amd64" "x86"
 
 echo "========================================"
-echo "All builds completed! Files in $OUTPUT_DIR"
+echo "Build Complete!"
+echo "Packages located in: $OUTPUT_DIR"
 echo "========================================"
 ls -lh $OUTPUT_DIR
