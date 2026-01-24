@@ -440,7 +440,7 @@ func (h *APIHandler) HandleMount(w http.ResponseWriter, r *http.Request) {
 
 	cmd := exec.Command(exe, "mount", "--config", h.configPath, "--mountpoint", mountpoint)
 	cmd.Env = os.Environ()
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = getSysProcAttr()
 
 	// 0644 允许同组和其他用户读取
 	logFile, err := os.OpenFile(filepath.Join(getPkgVar(), "mount.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)

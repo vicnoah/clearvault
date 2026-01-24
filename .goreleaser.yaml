@@ -36,13 +36,11 @@ builds:
 
 archives:
     - id: archive
-      builds:
-          - clearvault
-          - clearvault-fuse
+      format: tar.gz
+      name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if eq .BuildID "clearvault-fuse" }}_fuse{{ end }}'
       format_overrides:
           - goos: windows
             format: zip
-      name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if eq .BuildID "clearvault-fuse" }}_fuse{{ end }}'
 
 checksum:
     name_template: "checksums.txt"
