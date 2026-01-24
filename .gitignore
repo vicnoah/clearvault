@@ -1,5 +1,6 @@
 # Compiled binaries
 clearvault
+!cmd/clearvault/
 tools/zs3
 
 # Log files

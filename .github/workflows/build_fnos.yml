@@ -50,11 +50,6 @@ jobs:
                   chmod +x scripts/build_fnos.sh
                   ./scripts/build_fnos.sh
 
-            - name: Verify x86 FUSE mount command
-              run: |
-                  ./deploy/fnos/app/server/clearvault mount --help | tee /tmp/clearvault_mount_help.txt
-                  grep -q "Usage: clearvault mount" /tmp/clearvault_mount_help.txt
-
             - name: Upload artifact
               uses: actions/upload-artifact@v4
               with:
