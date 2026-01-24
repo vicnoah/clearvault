@@ -41,12 +41,20 @@ builds:
             - CC=aarch64-linux-gnu-gcc
 
 archives:
-    - id: archive
+    - id: clearvault
+      builds:
+          - clearvault
       format: tar.gz
-      name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if eq .BuildID "clearvault-fuse" }}_fuse{{ end }}'
+      name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}'
       format_overrides:
           - goos: windows
             format: zip
+
+    - id: clearvault-fuse
+      builds:
+          - clearvault-fuse
+      format: tar.gz
+      name_template: '{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}_fuse'
 
 checksum:
     name_template: "checksums.txt"
