@@ -26,6 +26,7 @@ builds:
           - CGO_ENABLED=1
       tags:
           - fuse
+          - fuse3
       goos:
           - linux
       goarch:
