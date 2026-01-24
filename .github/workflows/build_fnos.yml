@@ -1,75 +1,80 @@
 name: Build fnOS Package
 
 on:
-  push:
-    branches:
-      - main
-      - 'dev_*'
-    tags:
-      - 'v*.*.*'
-  pull_request:
-    branches:
-      - main
+    push:
+        branches:
+            - main
+            - "dev_*"
+        tags:
+            - "v*.*.*"
+    pull_request:
+        branches:
+            - main
 
 permissions:
-  contents: write
+    contents: write
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - name: Checkout
+              uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.24.0'
+            - name: Setup Go
+              uses: actions/setup-go@v5
+              with:
+                  go-version: "1.24.0"
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu libfuse3-dev pkg-config
+            - name: Install dependencies
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y build-essential gcc-aarch64-linux-gnu libfuse3-dev pkg-config
 
-      - name: Download fnpack
-        run: |
-          curl -L -o /tmp/fnpack https://static2.fnnas.com/fnpack/fnpack-1.2.0-linux-amd64 
-          chmod +x /tmp/fnpack
-          sudo mv /tmp/fnpack /usr/local/bin/fnpack
+            - name: Download fnpack
+              run: |
+                  curl -L -o /tmp/fnpack https://static2.fnnas.com/fnpack/fnpack-1.2.0-linux-amd64
+                  chmod +x /tmp/fnpack
+                  sudo mv /tmp/fnpack /usr/local/bin/fnpack
 
-      - name: Update manifest version from tag
+            - name: Update manifest version from tag
+              if: startsWith(github.ref, 'refs/tags/v')
+              run: |
+                  VERSION=${GITHUB_REF#refs/tags/v}
+                  sed -i "s/^version.*=.*/version      = ${VERSION}/" deploy/fnos/manifest
+                  echo "Updated manifest version to ${VERSION}"
+                  grep "^version" deploy/fnos/manifest
+
+            - name: Build packages
+              run: |
+                  chmod +x scripts/build_fnos.sh
+                  ./scripts/build_fnos.sh
+
+            - name: Verify x86 FUSE mount command
+              run: |
+                  ./deploy/fnos/app/server/clearvault mount --help | tee /tmp/clearvault_mount_help.txt
+                  grep -q "Usage: clearvault mount" /tmp/clearvault_mount_help.txt
+
+            - name: Upload artifact
+              uses: actions/upload-artifact@v4
+              with:
+                  name: fnos-packages
+                  path: build/fnos/*.fpk
+
+    release:
+        needs: build
         if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          sed -i "s/^version.*=.*/version      = ${VERSION}/" deploy/fnos/manifest
-          echo "Updated manifest version to ${VERSION}"
-          grep "^version" deploy/fnos/manifest
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - name: Download artifact
+              uses: actions/download-artifact@v4
+              with:
+                  name: fnos-packages
 
-      - name: Build packages
-        run: |
-          chmod +x scripts/build_fnos.sh
-          ./scripts/build_fnos.sh
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fnos-packages
-          path: build/fnos/*.fpk
-
-  release:
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: fnos-packages
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: "*.fpk"
-          generate_release_notes: true
+            - name: Create Release
+              uses: softprops/action-gh-release@v1
+              with:
+                  files: "*.fpk"
+                  generate_release_notes: true
