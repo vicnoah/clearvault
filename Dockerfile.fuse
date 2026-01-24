@@ -15,7 +15,7 @@ RUN go mod download
 COPY . .
 
 # Build the application with FUSE support
-RUN CGO_ENABLED=1 GOOS=linux go build -tags fuse -a -installsuffix cgo -o clearvault ./cmd/clearvault
+RUN CGO_ENABLED=1 GOOS=linux go build -tags "fuse fuse3" -a -installsuffix cgo -o clearvault ./cmd/clearvault
 
 # Runtime stage
 FROM alpine:latest
