@@ -29,7 +29,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu
+          sudo apt-get install -y build-essential gcc-aarch64-linux-gnu libfuse3-dev pkg-config
 
       - name: Download fnpack
         run: |
@@ -49,6 +49,11 @@ jobs:
         run: |
           chmod +x scripts/build_fnos.sh
           ./scripts/build_fnos.sh
+
+      - name: Verify x86 FUSE mount command
+        run: |
+          ./deploy/fnos/app/server/clearvault mount --help | tee /tmp/clearvault_mount_help.txt
+          grep -q "Usage: clearvault mount" /tmp/clearvault_mount_help.txt
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
