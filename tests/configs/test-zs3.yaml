@@ -1,0 +1,25 @@
+server:
+    listen: :8080
+    base_url: "/dav"
+    auth:
+        user: "admin"
+        pass: "admin"
+remote:
+    type: s3
+    url: "http://localhost:9000"
+    endpoint: "http://localhost:9000"
+    region: "us-east-1"
+    bucket: "test-bucket"
+    access_key: "minioadmin"
+    secret_key: "minioadmin"
+    use_ssl: false
+    user: ""
+    pass: ""
+    local_path: ./data/test-s3
+security:
+    master_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+storage:
+    metadata_path: "./data/test-metadata-s3"
+    cache_dir: "./data/test-cache-s3"
+access:
+    token: test-token

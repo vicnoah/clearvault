@@ -223,17 +223,82 @@ func (fs *ClearVaultFS) Open(path string, flags int) (int, uint64) {
 func (fs *ClearVaultFS) Read(path string, buff []byte, ofst int64, fh uint64) int {
 	rc, err := fs.proxy.DownloadRange(path, ofst, int64(len(buff)))
 	if err != nil {
-		log.Printf("FUSE Read error: %v", err)
+		log.Printf("FUSE Read error: path=%q offset=%d len=%d err=%v", path, ofst, len(buff), err)
 		return -fuse.EIO
 	}
 	defer rc.Close()
 
-	n, err := io.ReadFull(rc, buff)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		log.Printf("FUSE ReadFull error: %v", err)
+	// 使用普通 Read 而不是 ReadFull，允许部分读取
+	// 这样可以更好地处理网络/存储层的临时问题
+	n, err := rc.Read(buff)
+	if err != nil && err != io.EOF {
+		// 检查是否是临时错误（如网络超时）
+		if isTemporaryError(err) {
+			log.Printf("FUSE Read temporary error: path=%q offset=%d n=%d err=%v", path, ofst, n, err)
+			// 如果已经读取了一些数据，返回已读取的字节数
+			if n > 0 {
+				return n
+			}
+			return -fuse.EAGAIN
+		}
+		log.Printf("FUSE Read error: path=%q offset=%d n=%d err=%v", path, ofst, n, err)
 		return -fuse.EIO
 	}
+
+	// 成功读取或到达文件末尾
 	return n
+}
+
+// isTemporaryError 检查错误是否是临时性的（可以重试）
+func isTemporaryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// 常见的临时错误模式
+	temporaryPatterns := []string{
+		"timeout",
+		"temporary",
+		"retry",
+		"connection reset",
+		"broken pipe",
+		"i/o timeout",
+	}
+	for _, pattern := range temporaryPatterns {
+		if containsIgnoreCase(errStr, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+// containsIgnoreCase 检查字符串是否包含子串（忽略大小写）
+func containsIgnoreCase(s, substr string) bool {
+	return len(substr) <= len(s) && 
+		(findSubstr(s, substr) >= 0 || findSubstr(toLower(s), toLower(substr)) >= 0)
+}
+
+// findSubstr 查找子串位置
+func findSubstr(s, substr string) int {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return i
+		}
+	}
+	return -1
+}
+
+// toLower 将字符串转换为小写
+func toLower(s string) string {
+	result := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c = c + ('a' - 'A')
+		}
+		result[i] = c
+	}
+	return string(result)
 }
 
 // Create creates a file

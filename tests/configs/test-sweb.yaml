@@ -1,0 +1,25 @@
+server:
+    listen: :8080
+    base_url: "/dav"
+    auth:
+        user: "admin"
+        pass: "admin"
+remote:
+    type: webdav
+    url: "http://localhost:8081/webdav"
+    user: "admin"
+    pass: "admin123"
+    endpoint: ""
+    region: ""
+    bucket: ""
+    access_key: ""
+    secret_key: ""
+    use_ssl: false
+    local_path: ./data/test-webdav
+security:
+    master_key: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
+storage:
+    metadata_path: "./data/test-metadata-webdav"
+    cache_dir: "./data/test-cache-webdav"
+access:
+    token: test-token

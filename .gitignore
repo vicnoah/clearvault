@@ -2,11 +2,14 @@
 clearvault
 !cmd/clearvault/
 tools/zs3
+tools/sweb
+data/
 
 # Log files
 *.log
 clearvault.log
 tools/zs3.log
+tools/sweb.log
 
 # Storage directory
 storage/

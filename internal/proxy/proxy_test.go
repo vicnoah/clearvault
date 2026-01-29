@@ -285,3 +285,261 @@ func (fi *mockFileInfo) Mode() os.FileMode  { return 0644 }
 func (fi *mockFileInfo) ModTime() time.Time { return time.Now() }
 func (fi *mockFileInfo) IsDir() bool        { return false }
 func (fi *mockFileInfo) Sys() interface{}   { return nil }
+
+// TestLargeFileUpload tests uploading and downloading large files
+func TestLargeFileUpload(t *testing.T) {
+	metaDir := "./test_largefile_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := newMockRemoteStorage()
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	// Test with 5MB of data
+	fileSize := 5 * 1024 * 1024
+	data := make([]byte, fileSize)
+	for i := range data {
+		data[i] = byte(i % 256)
+	}
+
+	// Upload
+	err = p.UploadFile("/large.bin", bytes.NewReader(data), int64(fileSize))
+	if err != nil {
+		t.Fatalf("UploadFile failed: %v", err)
+	}
+
+	// Download and verify
+	rc, err := p.DownloadFile("/large.bin")
+	if err != nil {
+		t.Fatalf("DownloadFile failed: %v", err)
+	}
+	defer rc.Close()
+
+	downloaded, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Failed to read downloaded content: %v", err)
+	}
+
+	if !bytes.Equal(data, downloaded) {
+		t.Errorf("Large file content mismatch: expected %d bytes, got %d", len(data), len(downloaded))
+	}
+}
+
+// TestSpecialCharactersFilename tests filenames with special characters
+func TestSpecialCharactersFilename(t *testing.T) {
+	metaDir := "./test_special_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := newMockRemoteStorage()
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	specialNames := []string{
+		"/test file with spaces.txt",
+		"/test-file-with-dashes.txt",
+		"/test_file_with_underscores.txt",
+		"/test.file.with.dots.txt",
+		"/test(1).txt",
+		"/test[1].txt",
+		"/test{1}.txt",
+		"/test+1.txt",
+		"/test=1.txt",
+		"/test@1.txt",
+		"/test#1.txt",
+		"/test%201.txt",
+	}
+
+	for _, name := range specialNames {
+		content := []byte("content for " + name)
+		err := p.UploadFile(name, bytes.NewReader(content), int64(len(content)))
+		if err != nil {
+			t.Errorf("Failed to upload %s: %v", name, err)
+			continue
+		}
+
+		// Verify download
+		rc, err := p.DownloadFile(name)
+		if err != nil {
+			t.Errorf("Failed to download %s: %v", name, err)
+			continue
+		}
+
+		downloaded, err := io.ReadAll(rc)
+		rc.Close()
+		if err != nil {
+			t.Errorf("Failed to read %s: %v", name, err)
+			continue
+		}
+
+		if !bytes.Equal(content, downloaded) {
+			t.Errorf("Content mismatch for %s", name)
+		}
+	}
+}
+
+// TestFileRename tests file rename operation
+func TestFileRename(t *testing.T) {
+	metaDir := "./test_rename_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := newMockRemoteStorage()
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	// Create original file
+	originalContent := []byte("original content")
+	err = p.UploadFile("/original.txt", bytes.NewReader(originalContent), int64(len(originalContent)))
+	if err != nil {
+		t.Fatalf("UploadFile failed: %v", err)
+	}
+
+	// Rename file
+	err = p.RenameFile("/original.txt", "/renamed.txt")
+	if err != nil {
+		t.Fatalf("Rename failed: %v", err)
+	}
+
+	// Verify original doesn't exist
+	_, err = p.DownloadFile("/original.txt")
+	if err == nil {
+		t.Error("Expected error when downloading original file after rename")
+	}
+
+	// Verify renamed file exists with correct content
+	rc, err := p.DownloadFile("/renamed.txt")
+	if err != nil {
+		t.Fatalf("Failed to download renamed file: %v", err)
+	}
+	defer rc.Close()
+
+	content, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Failed to read renamed file: %v", err)
+	}
+
+	if !bytes.Equal(originalContent, content) {
+		t.Errorf("Content mismatch after rename")
+	}
+}
+
+// TestFileDelete tests file deletion
+func TestFileDelete(t *testing.T) {
+	metaDir := "./test_delete_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := newMockRemoteStorage()
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	// Create file
+	content := []byte("content to delete")
+	err = p.UploadFile("/delete-me.txt", bytes.NewReader(content), int64(len(content)))
+	if err != nil {
+		t.Fatalf("UploadFile failed: %v", err)
+	}
+
+	// Verify file exists
+	_, err = p.DownloadFile("/delete-me.txt")
+	if err != nil {
+		t.Fatalf("File should exist before deletion")
+	}
+
+	// Delete file
+	err = p.RemoveAll("/delete-me.txt")
+	if err != nil {
+		t.Fatalf("Delete failed: %v", err)
+	}
+
+	// Verify file is deleted
+	_, err = p.DownloadFile("/delete-me.txt")
+	if err == nil {
+		t.Error("Expected error when downloading deleted file")
+	}
+}
+
+// TestEmptyContentUpload tests uploading empty content
+func TestEmptyContentUpload(t *testing.T) {
+	metaDir := "./test_empty_meta"
+	os.RemoveAll(metaDir)
+	defer os.RemoveAll(metaDir)
+
+	meta, err := metadata.NewLocalStorage(metaDir)
+	if err != nil {
+		t.Fatalf("Failed to init metadata: %v", err)
+	}
+
+	masterKey := "dGhpcy1pcy1hLTMyLWJ5dGUtbG9uZy1tYXN0ZXJrZXk="
+	mockRemote := newMockRemoteStorage()
+	var remoteStorage remote.RemoteStorage = mockRemote
+
+	p, err := NewProxy(meta, remoteStorage, masterKey)
+	if err != nil {
+		t.Fatalf("NewProxy failed: %v", err)
+	}
+
+	// Upload empty content
+	err = p.UploadFile("/empty.txt", bytes.NewReader([]byte{}), 0)
+	if err != nil {
+		t.Fatalf("UploadFile failed: %v", err)
+	}
+
+	// Download and verify
+	rc, err := p.DownloadFile("/empty.txt")
+	if err != nil {
+		t.Fatalf("DownloadFile failed: %v", err)
+	}
+	defer rc.Close()
+
+	content, err := io.ReadAll(rc)
+	if err != nil {
+		t.Fatalf("Failed to read content: %v", err)
+	}
+
+	if len(content) != 0 {
+		t.Errorf("Expected empty content, got %d bytes", len(content))
+	}
+}

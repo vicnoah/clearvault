@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"clearvault/internal/config"
 	cvfuse "clearvault/internal/fuse"
@@ -93,7 +96,7 @@ func handleMount(args []string) {
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 		<-sigChan
 		log.Println("Received signal, unmounting...")
-		host.Unmount()
+		performUnmount(host, *mountpoint)
 	}()
 
 	log.Printf("Mounting FUSE at %s", *mountpoint)
@@ -140,4 +143,74 @@ func printMountUsage() {
 	log.Println("  --config string     配置文件路径 (default \"config.yaml\")")
 	log.Println("  --mountpoint string 挂载点路径 (required)")
 	log.Println("  --help              显示帮助信息")
+}
+
+// performUnmount 执行卸载操作，包含重试和备选方案
+func performUnmount(host *fuse.FileSystemHost, mountpoint string) {
+	// 首先尝试正常卸载
+	log.Println("Unmounting FUSE filesystem...")
+	host.Unmount()
+
+	// 等待一段时间让卸载完成
+	time.Sleep(100 * time.Millisecond)
+
+	// 检查挂载点是否仍然挂载
+	if isMountpointActive(mountpoint) {
+		log.Printf("Mountpoint still active, trying lazy unmount...")
+		// 尝试 lazy unmount
+		if err := lazyUnmount(mountpoint); err != nil {
+			log.Printf("Lazy unmount failed: %v", err)
+		}
+	}
+
+	// 如果仍然挂载，尝试强制卸载
+	if isMountpointActive(mountpoint) {
+		log.Printf("Mountpoint still active after lazy unmount, trying force unmount...")
+		for i := 0; i < 3; i++ {
+			if err := forceUnmount(mountpoint); err != nil {
+				log.Printf("Force unmount attempt %d failed: %v", i+1, err)
+				time.Sleep(500 * time.Millisecond)
+			} else {
+				log.Println("Force unmount succeeded")
+				break
+			}
+		}
+	}
+
+	log.Println("Unmount operation completed")
+}
+
+// isMountpointActive 检查挂载点是否仍然活跃
+func isMountpointActive(mountpoint string) bool {
+	// 通过检查 /proc/mounts 或使用 mountpoint 命令
+	data, err := os.ReadFile("/proc/mounts")
+	if err != nil {
+		// 如果无法读取 /proc/mounts，假设挂载点仍然活跃
+		return true
+	}
+	return strings.Contains(string(data), mountpoint)
+}
+
+// lazyUnmount 执行 lazy unmount
+func lazyUnmount(mountpoint string) error {
+	cmd := exec.Command("fusermount", "-u", "-z", mountpoint)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("fusermount -u -z failed: %v, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// forceUnmount 执行强制卸载
+func forceUnmount(mountpoint string) error {
+	cmd := exec.Command("fusermount", "-u", mountpoint)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		// 忽略 "Invalid argument" 错误（挂载点可能已经被卸载）
+		if strings.Contains(string(output), "Invalid argument") {
+			return nil
+		}
+		return fmt.Errorf("fusermount -u failed: %v, output: %s", err, string(output))
+	}
+	return nil
 }

@@ -547,6 +547,11 @@ func (p *Proxy) DownloadRange(pname string, offset, length int64) (io.ReadCloser
 		return io.NopCloser(bytes.NewReader([]byte{})), nil
 	}
 
+	// Adjust length if it would exceed file size
+	if length > 0 && offset+length > meta.Size {
+		length = meta.Size - offset
+	}
+
 	fek, err := p.decryptFEK(meta.FEK)
 	if err != nil {
 		return nil, err
@@ -576,21 +581,48 @@ func (p *Proxy) DownloadRange(pname string, offset, length int64) (io.ReadCloser
 	}
 
 	encStart := int64(startChunk) * crypto.CipherChunkSize
-	// Calculate the actual encrypted length needed
-	// This is the number of full cipher chunks we need to read
-	encLength := int64(endChunk-startChunk+1) * crypto.CipherChunkSize
 
-	// Cap encLength to the actual encrypted file size
-	// The encrypted file size is: original_size + num_chunks * TagSize
-	// But we don't have the encrypted size, so we just read the chunks we need
-	// The S3 client will handle reading beyond the file end
-	// However, we need to cap it to avoid requesting too much data
-	// The encrypted size is at most: meta.Size + num_chunks * TagSize
-	// But we can just let S3 handle it
+	// Calculate the actual encrypted length needed more precisely
+	// For the last chunk, we need to calculate the actual encrypted size
+	var encLength int64
+	if startChunk == endChunk {
+		// Single chunk case
+		chunkStart := int64(startChunk) * crypto.ChunkSize
+		chunkEnd := chunkStart + crypto.ChunkSize
+		if chunkEnd > meta.Size {
+			chunkEnd = meta.Size
+		}
+		actualChunkSize := chunkEnd - chunkStart
+		encLength = actualChunkSize + crypto.TagSize
+	} else {
+		// Multiple chunks case
+		// Full chunks in the middle
+		fullChunks := endChunk - startChunk - 1
+		encLength = int64(fullChunks) * crypto.CipherChunkSize
+
+		// First chunk (may be partial if offset is not aligned)
+		firstChunkEnd := int64(startChunk+1) * crypto.ChunkSize
+		if firstChunkEnd > meta.Size {
+			firstChunkEnd = meta.Size
+		}
+		firstChunkSize := firstChunkEnd - int64(startChunk)*crypto.ChunkSize
+		encLength += firstChunkSize + crypto.TagSize
+
+		// Last chunk (may be partial)
+		lastChunkStart := int64(endChunk) * crypto.ChunkSize
+		lastChunkSize := meta.Size - lastChunkStart
+		if lastChunkSize > crypto.ChunkSize {
+			lastChunkSize = crypto.ChunkSize
+		}
+		encLength += lastChunkSize + crypto.TagSize
+	}
+
+	log.Printf("Proxy: DownloadRange '%s' offset=%d length=%d startChunk=%d endChunk=%d encStart=%d encLength=%d",
+		pname, offset, length, startChunk, endChunk, encStart, encLength)
 
 	cipherRC, err := p.remote.DownloadRange(meta.RemoteName, encStart, encLength)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to download range: %w", err)
 	}
 
 	pr, pw := io.Pipe()
